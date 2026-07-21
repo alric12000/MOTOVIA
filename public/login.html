@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | Motovia Nepal Admin Portal</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="login-body">
+
+  <div class="login-card">
+    <div class="login-logo">M</div>
+    <h2>MOTOVIA NEPAL</h2>
+    <p>Premium Auto Care Admin Portal</p>
+    
+    <form class="login-form" id="loginForm">
+      <div class="login-input-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Enter username" required autocomplete="username">
+      </div>
+      
+      <div class="login-input-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter password" required autocomplete="current-password">
+      </div>
+      
+      <button type="submit" class="btn-login" id="submitBtn">
+        <i class="fa-solid fa-right-to-bracket"></i> Login
+      </button>
+    </form>
+  </div>
+
+  <div class="toast" id="toastNotification">
+    <i class="fa-solid fa-circle-info" id="toastIcon"></i>
+    <span id="toastMessage">Notification Message</span>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const toast = document.getElementById('toastNotification');
+    const toastMsg = document.getElementById('toastMessage');
+    const toastIcon = document.getElementById('toastIcon');
+
+    function showToast(message, type = 'success') {
+      toastMsg.innerText = message;
+      toast.className = 'toast active ' + type;
+      
+      if (type === 'success') {
+        toastIcon.className = 'fa-solid fa-circle-check';
+        toastIcon.style.color = 'var(--color-success)';
+      } else if (type === 'danger') {
+        toastIcon.className = 'fa-solid fa-circle-exclamation';
+        toastIcon.style.color = 'var(--color-danger)';
+      } else {
+        toastIcon.className = 'fa-solid fa-circle-info';
+        toastIcon.style.color = 'var(--color-primary)';
+      }
+
+      setTimeout(() => {
+        toast.classList.remove('active');
+      }, 3500);
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Authenticating...';
+
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          showToast('Login successful! Redirecting...', 'success');
+          setTimeout(() => {
+            window.location.href = '/index.html';
+          }, 1000);
+        } else {
+          showToast(data.error || 'Invalid credentials', 'danger');
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
+        }
+      } catch (err) {
+        showToast('Server connection error. Please try again.', 'danger');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
+      }
+    });
+  </script>
+</body>
+</html>

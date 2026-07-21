@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Motovia Nepal | Admin Management System</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Chart.js for premium visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">M</div>
+        <div class="brand-details">
+          <h2>MOTOVIA.NP</h2>
+          <span>Premium Auto Care</span>
+        </div>
+      </div>
+
+      <ul class="nav-links">
+        <li class="nav-item active" data-tab="dashboard">
+          <a onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
+        </li>
+        <li class="nav-item" data-tab="orders">
+          <a onclick="switchTab('orders')"><i class="fa-solid fa-cart-shopping"></i> Sales Orders</a>
+        </li>
+        <li class="nav-item" data-tab="expenses">
+          <a onclick="switchTab('expenses')"><i class="fa-solid fa-wallet"></i> Expenses</a>
+        </li>
+        <li class="nav-item" data-tab="adspend">
+          <a onclick="switchTab('adspend')"><i class="fa-solid fa-rectangle-ad"></i> Ad Spend</a>
+        </li>
+        <li class="nav-item" data-tab="customers">
+          <a onclick="switchTab('customers')"><i class="fa-solid fa-users"></i> Customers</a>
+        </li>
+        <li class="nav-item" data-tab="inventory">
+          <a onclick="switchTab('inventory')"><i class="fa-solid fa-boxes-stacked"></i> Inventory</a>
+        </li>
+        <li class="nav-item" data-tab="pl">
+          <a onclick="switchTab('pl')"><i class="fa-solid fa-receipt"></i> P&L Statement</a>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="user-profile">
+          <div class="user-avatar" id="userInitials">AD</div>
+          <div class="user-info">
+            <h4 id="userNameDisplay">Admin User</h4>
+            <span>Administrator</span>
+          </div>
+        </div>
+        <button class="btn-logout" onclick="handleLogout()">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN VIEW -->
+    <main class="main-content">
+      
+      <!-- TOP HEADER -->
+      <header class="top-header">
+        <div class="page-title">
+          <h1 id="viewTitle">Dashboard Overview</h1>
+          <p id="viewSubtitle">Welcome back! Here is your business health at a glance.</p>
+        </div>
+        <div class="header-actions" id="headerActions">
+          <!-- Populated dynamically based on tab -->
+          <button class="btn-primary" onclick="openOrderModal()"><i class="fa-solid fa-plus"></i> New Order</button>
+        </div>
+      </header>
+
+      <!-- 1. DASHBOARD VIEW -->
+      <section id="dashboardTab" class="tab-content active">
+        <!-- KPI METRICS -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Total Revenue</span>
+              <div class="stat-icon revenue"><i class="fa-solid fa-money-bill-trend-up"></i></div>
+            </div>
+            <div class="stat-value" id="statRevenue">Rs. 0.00</div>
+            <div class="stat-footer">Gross incoming sales</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Total COGS</span>
+              <div class="stat-icon cogs"><i class="fa-solid fa-tag"></i></div>
+            </div>
+            <div class="stat-value" id="statCOGS">Rs. 0.00</div>
+            <div class="stat-footer">Cost of Goods Sold</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Total Expenses</span>
+              <div class="stat-icon expenses"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+            </div>
+            <div class="stat-value" id="statExpenses">Rs. 0.00</div>
+            <div class="stat-footer">Operations & Logistics</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Ad Spend</span>
+              <div class="stat-icon expenses" style="background:rgba(59,130,246,0.1); color:var(--color-info)"><i class="fa-solid fa-rectangle-ad"></i></div>
+            </div>
+            <div class="stat-value" id="statAdSpend">Rs. 0.00</div>
+            <div class="stat-footer">Marketing Campaigns</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Net Profit</span>
+              <div class="stat-icon profit"><i class="fa-solid fa-wallet"></i></div>
+            </div>
+            <div class="stat-value" id="statNetProfit">Rs. 0.00</div>
+            <div class="stat-footer" id="statProfitMargin">Margin: 0%</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Total Orders</span>
+              <div class="stat-icon orders"><i class="fa-solid fa-cart-shopping"></i></div>
+            </div>
+            <div class="stat-value" id="statOrders">0</div>
+            <div class="stat-footer">Orders placed to date</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Total Customers</span>
+              <div class="stat-icon orders" style="background:rgba(163,113,247,0.1); color:#a371f7"><i class="fa-solid fa-users"></i></div>
+            </div>
+            <div class="stat-value" id="statCustomers">0</div>
+            <div class="stat-footer">Unique contacts tracked</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span>Low Stock Items</span>
+              <div class="stat-icon alerts"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            </div>
+            <div class="stat-value" id="statLowStock" style="color: var(--color-danger)">0</div>
+            <div class="stat-footer">Products needing reorder</div>
+          </div>
+        </div>
+
+        <!-- CHARTS SECTION -->
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <div class="chart-title">
+                <h3>Monthly Performance</h3>
+                <p>Revenue vs. Total Costs vs. Net Profit</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="performanceChart"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <div class="chart-title">
+                <h3>Top Product Sales</h3>
+                <p>Distribution by units sold</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="productChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. SALES ORDERS VIEW -->
+      <section id="ordersTab" class="tab-content">
+        <div class="filter-bar">
+          <div class="search-wrapper">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="orderSearch" placeholder="Search orders by ID, name, phone, notes..." oninput="fetchOrders()">
+          </div>
+          <div class="select-wrapper">
+            <select id="orderFilterStatus" onchange="fetchOrders()">
+              <option value="">All Statuses</option>
+              <option value="Order Placed">Order Placed</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Pending">Pending</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="select-wrapper">
+            <select id="orderFilterPlatform" onchange="fetchOrders()">
+              <option value="">All Platforms</option>
+              <option value="Instagram">Instagram</option>
+              <option value="Facebook">Facebook</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <button class="btn-secondary" onclick="exportTableToCSV('motovia_sales_orders.csv', 'ordersTable')" style="padding: 10px 14px;"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="ordersTable">
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Platform</th>
+                <th>Selling Price</th>
+                <th>Revenue</th>
+                <th>Net Profit</th>
+                <th>Payment</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+          <div class="pagination">
+            <span id="orderTableRange">Showing 0-0 of 0 entries</span>
+            <div class="pagination-controls">
+              <button class="btn-icon" onclick="prevOrderPage()"><i class="fa-solid fa-chevron-left"></i></button>
+              <button class="btn-icon" onclick="nextOrderPage()"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. EXPENSES VIEW -->
+      <section id="expensesTab" class="tab-content">
+        <div class="table-container">
+          <table class="data-table" id="expensesTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Amount (Rs.)</th>
+                <th>Payment Method</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 4. AD SPEND VIEW -->
+      <section id="adspendTab" class="tab-content">
+        <div class="table-container">
+          <table class="data-table" id="adspendTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Platform</th>
+                <th>Campaign</th>
+                <th>Amount (Rs.)</th>
+                <th>Objective / Notes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 5. CUSTOMERS VIEW -->
+      <section id="customersTab" class="tab-content">
+        <div class="table-container">
+          <table class="data-table" id="customersTable">
+            <thead>
+              <tr>
+                <th>Customer ID</th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Address</th>
+                <th>Acquisition Platform</th>
+                <th>Total Orders</th>
+                <th>Total Spent (Rs.)</th>
+                <th>Last Order Date</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 6. INVENTORY VIEW -->
+      <section id="inventoryTab" class="tab-content">
+        <div class="table-container">
+          <table class="data-table" id="inventoryTable">
+            <thead>
+              <tr>
+                <th>Product SKU</th>
+                <th>Product Name</th>
+                <th>Category</th>
+                <th>Opening Stock</th>
+                <th>Restocked Qty</th>
+                <th>Sold Qty</th>
+                <th>Remaining Stock</th>
+                <th>Reorder Level</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 7. P&L STATEMENT VIEW -->
+      <section id="plTab" class="tab-content">
+        <div class="table-container">
+          <table class="data-table pl-table" id="plTable">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Revenue (Rs.)</th>
+                <th>COGS (Rs.)</th>
+                <th>Gross Profit (Rs.)</th>
+                <th>Operating Expenses (Rs.)</th>
+                <th>Ad Spend (Rs.)</th>
+                <th>Net Profit (Rs.)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- --- MODALS --- -->
+
+  <!-- Add Order Modal -->
+  <div class="modal-overlay" id="orderModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Create New Order</h3>
+        <button class="btn-close" onclick="closeOrderModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="orderForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="orderDate">Date</label>
+              <input type="date" id="orderDate" required>
+            </div>
+            <div class="form-group">
+              <label for="orderId">Order ID (Auto)</label>
+              <input type="text" id="orderId" readonly placeholder="Generating...">
+            </div>
+            <div class="form-group full-width">
+              <label for="orderCustomer">Customer Name</label>
+              <input type="text" id="orderCustomer" placeholder="Anish Rai" required>
+            </div>
+            <div class="form-group">
+              <label for="orderPhone">Phone Number</label>
+              <input type="text" id="orderPhone" placeholder="98XXXXXXXX">
+            </div>
+            <div class="form-group">
+              <label for="orderAddress">Delivery Address</label>
+              <input type="text" id="orderAddress" placeholder="Kathmandu">
+            </div>
+            <div class="form-group">
+              <label for="orderProduct">Product</label>
+              <select id="orderProduct" required onchange="handleProductChange(this.value, 'orderSellingPrice')">
+                <option value="">Select Product</option>
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="orderQty">Quantity</label>
+              <input type="number" id="orderQty" min="1" value="1" required>
+            </div>
+            <div class="form-group">
+              <label for="orderSellingPrice">Selling Price (Rs.)</label>
+              <input type="number" id="orderSellingPrice" step="0.01" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+              <label for="orderPlatform">Acquisition Platform</label>
+              <select id="orderPlatform">
+                <option value="Instagram">Instagram</option>
+                <option value="Facebook">Facebook</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="orderPayment">Payment Method</label>
+              <select id="orderPayment">
+                <option value="COD">COD</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Esewa">Esewa</option>
+                <option value="Khalti">Khalti</option>
+                <option value="Cash">Cash</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="orderStatus">Delivery Status</label>
+              <select id="orderStatus">
+                <option value="Order Placed" selected>Order Placed</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Shipped">Shipped</option>
+                <option value="Pending">Pending</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="form-group full-width">
+              <label for="orderNotes">Notes</label>
+              <textarea id="orderNotes" placeholder="e.g. Wash Combo + Extra Bottle" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeOrderModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitOrder()">Save Order</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Order Status/Details Modal -->
+  <div class="modal-overlay" id="editOrderModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Edit Order <span id="editOrderTitleId"></span></h3>
+        <button class="btn-close" onclick="closeEditOrderModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="editOrderForm">
+          <input type="hidden" id="editOrderId">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="editOrderDate">Date</label>
+              <input type="date" id="editOrderDate" required>
+            </div>
+            <div class="form-group">
+              <label for="editOrderCustomer">Customer Name</label>
+              <input type="text" id="editOrderCustomer" required>
+            </div>
+            <div class="form-group">
+              <label for="editOrderPhone">Phone Number</label>
+              <input type="text" id="editOrderPhone">
+            </div>
+            <div class="form-group">
+              <label for="editOrderAddress">Delivery Address</label>
+              <input type="text" id="editOrderAddress">
+            </div>
+            <div class="form-group">
+              <label for="editOrderProduct">Product</label>
+              <select id="editOrderProduct" required onchange="handleProductChange(this.value, 'editOrderSellingPrice')">
+                <option value="">Select Product</option>
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="editOrderQty">Quantity</label>
+              <input type="number" id="editOrderQty" min="1" required>
+            </div>
+            <div class="form-group">
+              <label for="editOrderSellingPrice">Selling Price (Rs.)</label>
+              <input type="number" id="editOrderSellingPrice" step="0.01" required>
+            </div>
+            <div class="form-group">
+              <label for="editOrderPlatform">Platform</label>
+              <select id="editOrderPlatform">
+                <option value="Instagram">Instagram</option>
+                <option value="Facebook">Facebook</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="editOrderPayment">Payment Method</label>
+              <select id="editOrderPayment">
+                <option value="COD">COD</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Esewa">Esewa</option>
+                <option value="Khalti">Khalti</option>
+                <option value="Cash">Cash</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="editOrderStatus">Delivery Status</label>
+              <select id="editOrderStatus">
+                <option value="Order Placed">Order Placed</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Shipped">Shipped</option>
+                <option value="Pending">Pending</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="form-group full-width">
+              <label for="editOrderNotes">Notes</label>
+              <textarea id="editOrderNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeEditOrderModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitEditOrder()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Expense Modal -->
+  <div class="modal-overlay" id="expenseModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Log New Expense</h3>
+        <button class="btn-close" onclick="closeExpenseModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="expenseForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="expenseDate">Date</label>
+              <input type="date" id="expenseDate" required>
+            </div>
+            <div class="form-group">
+              <label for="expenseCategory">Category</label>
+              <select id="expenseCategory" required>
+                <option value="Packaging">Packaging</option>
+                <option value="Logistics">Logistics</option>
+                <option value="Salaries">Salaries</option>
+                <option value="Rent">Rent</option>
+                <option value="Utilities">Utilities</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group full-width">
+              <label for="expenseDesc">Description</label>
+              <input type="text" id="expenseDesc" placeholder="e.g. Boxes & tape - 100 units" required>
+            </div>
+            <div class="form-group">
+              <label for="expenseAmount">Amount (Rs.)</label>
+              <input type="number" id="expenseAmount" step="0.01" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+              <label for="expensePayment">Payment Method</label>
+              <select id="expensePayment">
+                <option value="Cash">Cash</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Esewa">Esewa</option>
+                <option value="Khalti">Khalti</option>
+              </select>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeExpenseModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitExpense()">Save Expense</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Ad Spend Modal -->
+  <div class="modal-overlay" id="adspendModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Record Ad Spend</h3>
+        <button class="btn-close" onclick="closeAdSpendModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="adspendForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="adDate">Date</label>
+              <input type="date" id="adDate" required>
+            </div>
+            <div class="form-group">
+              <label for="adPlatform">Platform</label>
+              <select id="adPlatform" required>
+                <option value="Facebook">Facebook</option>
+                <option value="Instagram">Instagram</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Google">Google</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group full-width">
+              <label for="adCampaign">Campaign Name</label>
+              <input type="text" id="adCampaign" placeholder="e.g. Eid Sale Promo" required>
+            </div>
+            <div class="form-group">
+              <label for="adAmount">Amount (Rs.)</label>
+              <input type="number" id="adAmount" step="0.01" placeholder="0.00" required>
+            </div>
+            <div class="form-group full-width">
+              <label for="adNotes">Notes / Objective</label>
+              <textarea id="adNotes" placeholder="e.g. Boost sales - carousel ad" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeAdSpendModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitAdSpend()">Save Ad Spend</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restock Inventory Modal -->
+  <div class="modal-overlay" id="restockModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Restock Product</h3>
+        <button class="btn-close" onclick="closeRestockModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="restockForm">
+          <input type="hidden" id="restockProductId">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label>Product Name</label>
+              <input type="text" id="restockProductName" readonly>
+            </div>
+            <div class="form-group">
+              <label for="restockDate">Restock Date</label>
+              <input type="date" id="restockDate" required>
+            </div>
+            <div class="form-group">
+              <label for="restockQty">Quantity Restocked</label>
+              <input type="number" id="restockQty" min="1" required>
+            </div>
+            <div class="form-group full-width">
+              <label for="restockNotes">Notes</label>
+              <textarea id="restockNotes" placeholder="e.g. Batch ref #4421" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeRestockModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitRestock()">Save Restock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Customer Modal -->
+  <div class="modal-overlay" id="customerModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Add Customer Record</h3>
+        <button class="btn-close" onclick="closeCustomerModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="customerForm">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label for="custName">Customer Name</label>
+              <input type="text" id="custName" placeholder="Sita Sharma" required>
+            </div>
+            <div class="form-group">
+              <label for="custPhone">Phone Number</label>
+              <input type="text" id="custPhone" placeholder="98XXXXXXXX">
+            </div>
+            <div class="form-group">
+              <label for="custAddress">Address</label>
+              <input type="text" id="custAddress" placeholder="Kathmandu">
+            </div>
+            <div class="form-group">
+              <label for="custPlatform">Platform</label>
+              <select id="custPlatform">
+                <option value="Instagram">Instagram</option>
+                <option value="Facebook">Facebook</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group full-width">
+              <label for="custNotes">Notes</label>
+              <textarea id="custNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeCustomerModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitCustomer()">Save Customer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Product Modal -->
+  <div class="modal-overlay" id="productModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Add New Product</h3>
+        <button class="btn-close" onclick="closeProductModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="productForm">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label for="prodName">Product Name</label>
+              <input type="text" id="prodName" placeholder="e.g. Foam X Spray Bottle" required>
+            </div>
+            <div class="form-group">
+              <label for="prodSku">SKU Code</label>
+              <input type="text" id="prodSku" placeholder="e.g. FOAM-SPRAY" required>
+            </div>
+            <div class="form-group">
+              <label for="prodCategory">Category</label>
+              <input type="text" id="prodCategory" placeholder="e.g. Shampoo">
+            </div>
+            <div class="form-group">
+              <label for="prodCostPrice">Cost Price (Rs.)</label>
+              <input type="number" id="prodCostPrice" step="0.01" placeholder="645.00" required>
+            </div>
+            <div class="form-group">
+              <label for="prodSellingPrice">Default Selling Price (Rs.)</label>
+              <input type="number" id="prodSellingPrice" step="0.01" placeholder="1499.00" required>
+            </div>
+            <div class="form-group">
+              <label for="prodOpeningStock">Opening Stock Qty</label>
+              <input type="number" id="prodOpeningStock" value="50" min="0">
+            </div>
+            <div class="form-group">
+              <label for="prodReorderLevel">Reorder Level Alert</label>
+              <input type="number" id="prodReorderLevel" value="10" min="1">
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeProductModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitProduct()">Save Product</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Invoice Modal -->
+  <div class="modal-overlay" id="invoiceModal">
+    <div class="modal-card" style="max-width: 780px;">
+      <div class="modal-header">
+        <h3>Invoice Viewer</h3>
+        <button class="btn-close" onclick="closeInvoiceModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body" style="background-color: #f8fafc; padding: 24px;">
+        
+        <!-- Printable Invoice Container -->
+        <div class="invoice-container" id="printableInvoice">
+          <div class="invoice-header">
+            <div class="invoice-logo">
+              <h2>MOTOVIA.NP</h2>
+              <p>Premium Auto Care Products</p>
+              <p>Kathmandu, Nepal</p>
+            </div>
+            <div class="invoice-title">
+              <h1>INVOICE</h1>
+              <p>Order ID: <span id="invId" style="font-weight: 700;">ORD-1001</span></p>
+              <p>Date: <span id="invDate">2026-07-15</span></p>
+            </div>
+          </div>
+
+          <div class="invoice-details">
+            <div class="invoice-party">
+              <h3>Billed To:</h3>
+              <p id="invCustomerName">Anish Rai</p>
+              <span id="invCustomerPhone">Phone: 9842551122</span>
+              <span id="invCustomerAddress">Address: Dharan</span>
+            </div>
+            <div class="invoice-party">
+              <h3>Payment Info:</h3>
+              <p>Method: <span id="invPaymentMethod">COD</span></p>
+              <span>Channel: <span id="invPlatform">Instagram</span></span>
+              <span>Status: <span id="invDeliveryStatus" style="font-weight: 600;">Delivered</span></span>
+            </div>
+          </div>
+
+          <table class="invoice-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th style="text-align: center; width: 80px;">Qty</th>
+                <th style="text-align: right; width: 120px;">Unit Price (Rs.)</th>
+                <th style="text-align: right; width: 150px;">Total Amount (Rs.)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="invProductDesc">Wash Combo</td>
+                <td id="invQty" style="text-align: center;">1</td>
+                <td id="invUnitPrice" style="text-align: right;">1,750.00</td>
+                <td id="invLineTotal" style="text-align: right;">1,750.00</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="invoice-totals">
+            <table class="invoice-totals-table">
+              <tr>
+                <td>Subtotal:</td>
+                <td id="invSubtotal" style="text-align: right;">1,750.00</td>
+              </tr>
+              <tr>
+                <td>Tax / Delivery:</td>
+                <td style="text-align: right;">0.00</td>
+              </tr>
+              <tr>
+                <td><strong>Grand Total:</strong></td>
+                <td id="invGrandTotal" style="text-align: right; font-weight: 700;">1,750.00</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="invoice-footer">
+            <p>Thank you for choosing Motovia Nepal for premium auto care!</p>
+            <p style="font-size: 0.7rem; color: #94a3b8; margin-top: 8px;">Generated automatically via Motovia Admin Management System</p>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeInvoiceModal()">Close</button>
+        <button class="btn-primary" onclick="printInvoice()"><i class="fa-solid fa-print"></i> Print / PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toastNotification">
+    <i class="fa-solid fa-circle-info" id="toastIcon"></i>
+    <span id="toastMessage">Notification Message</span>
+  </div>
+
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
