@@ -1,23 +1,138 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
+const admin = require('firebase-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = 'motovia_secret_key_12345'; // Simple key for local development
+const JWT_SECRET = process.env.JWT_SECRET || 'motovia_secret_key_12345';
 
-const dbPath = path.join(__dirname, 'motovia.db');
-const db = new sqlite3.Database(dbPath);
+function initializeFirebase() {
+  if (admin.apps.length > 0) {
+    return;
+  }
 
-// Middleware
+  const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON;
+  const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+
+  if (keyJson) {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(keyJson))
+    });
+    return;
+  }
+
+  if (keyPath) {
+    const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    return;
+  }
+
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault()
+  });
+}
+
+initializeFirebase();
+const db = admin.firestore();
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Auth Middleware
+function monthKey(dateStr) {
+  return (dateStr || '').slice(0, 7);
+}
+
+function orderNumber(orderId) {
+  const match = String(orderId || '').match(/ORD-(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function customerNumber(customerId) {
+  const match = String(customerId || '').match(/CUST-(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+async function getCollectionDocs(collectionName) {
+  const snapshot = await db.collection(collectionName).get();
+  return snapshot.docs.map((doc) => ({ ...doc.data() }));
+}
+
+async function getNextCounter(counterName, startAt = 1) {
+  const countersRef = db.collection('meta').doc('counters');
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(countersRef);
+    const data = snap.exists ? snap.data() : {};
+    const currentValue = Number.isInteger(data[counterName]) ? data[counterName] : (startAt - 1);
+    const nextValue = currentValue + 1;
+    tx.set(countersRef, { [counterName]: nextValue }, { merge: true });
+    return nextValue;
+  });
+}
+
+async function getNextOrderId() {
+  const orders = await getCollectionDocs('orders');
+  const maxOrderNum = orders.reduce((acc, order) => Math.max(acc, orderNumber(order.id)), 1000);
+  return `ORD-${maxOrderNum + 1}`;
+}
+
+async function getNextCustomerId() {
+  const customers = await getCollectionDocs('customers');
+  const maxCustomerNum = customers.reduce((acc, customer) => Math.max(acc, customerNumber(customer.id)), 0);
+  return `CUST-${String(maxCustomerNum + 1).padStart(3, '0')}`;
+}
+
+async function ensureSeedData() {
+  const adminRef = db.collection('users').doc('admin');
+  const adminSnap = await adminRef.get();
+  if (!adminSnap.exists) {
+    const salt = bcrypt.genSaltSync(10);
+    const adminHash = bcrypt.hashSync('admin123', salt);
+    await adminRef.set({
+      id: 1,
+      username: 'admin',
+      password_hash: adminHash
+    });
+  }
+
+  const products = await getCollectionDocs('products');
+  if (products.length === 0) {
+    const seedProducts = [
+      { id: 1, name: 'Combo Wash', sku: 'WASH-COMBO', category: 'Wash Services & Kits', cost_price: 871.0, default_selling_price: 1750.0, opening_stock: 100, reorder_level: 15 },
+      { id: 2, name: 'Foam X', sku: 'FOAM-X', category: 'Shampoo', cost_price: 645.0, default_selling_price: 1499.0, opening_stock: 80, reorder_level: 10 },
+      { id: 3, name: 'Talo', sku: 'TALO-WAX', category: 'Wax & Polish', cost_price: 300.0, default_selling_price: 600.0, opening_stock: 50, reorder_level: 8 },
+      { id: 4, name: 'Samphoo', sku: 'SHAMPOO-CAR', category: 'Shampoo', cost_price: 400.0, default_selling_price: 800.0, opening_stock: 60, reorder_level: 10 }
+    ];
+
+    const batch = db.batch();
+    seedProducts.forEach((product) => {
+      batch.set(db.collection('products').doc(String(product.id)), product);
+    });
+    batch.set(db.collection('meta').doc('counters'), { product_id: 4 }, { merge: true });
+    await batch.commit();
+  }
+
+  const customerRef = db.collection('customers').doc('CUST-001');
+  const customerSnap = await customerRef.get();
+  if (!customerSnap.exists) {
+    await customerRef.set({
+      id: 'CUST-001',
+      name: 'Sita Sharma',
+      phone: '98XXXXXXXX',
+      address: 'Kathmandu',
+      platform: 'TikTok Shop',
+      notes: 'First customer seed'
+    });
+  }
+}
+
 const authenticateToken = (req, res, next) => {
   const token = req.cookies.auth_token;
   if (!token) {
@@ -33,23 +148,19 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- AUTHENTICATION ENDPOINTS ---
-
-// Admin Login
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
-  }
-
-  db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-    if (err) {
-      return res.status(500).json({ error: 'Database error' });
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
-    if (!user) {
+
+    const userSnap = await db.collection('users').doc(username).get();
+    if (!userSnap.exists) {
       return res.status(400).json({ error: 'Invalid username or password' });
     }
 
+    const user = userSnap.data();
     const validPassword = bcrypt.compareSync(password, user.password_hash);
     if (!validPassword) {
       return res.status(400).json({ error: 'Invalid username or password' });
@@ -57,723 +168,701 @@ app.post('/api/auth/login', (req, res) => {
 
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '8h' });
     res.cookie('auth_token', token, { httpOnly: true, maxAge: 8 * 60 * 60 * 1000 });
-    res.json({ message: 'Login successful', username: user.username });
-  });
+    return res.json({ message: 'Login successful', username: user.username });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Login error' });
+  }
 });
 
-// Admin Logout
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('auth_token');
   res.json({ message: 'Logged out successfully' });
 });
 
-// Check Current Session
 app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ username: req.user.username });
 });
 
-// --- DASHBOARD ENDPOINTS ---
+app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
+  try {
+    const [orders, expenses, adSpend, products, restocks, manualCustomers] = await Promise.all([
+      getCollectionDocs('orders'),
+      getCollectionDocs('expenses'),
+      getCollectionDocs('ad_spend'),
+      getCollectionDocs('products'),
+      getCollectionDocs('restock_history'),
+      getCollectionDocs('customers')
+    ]);
 
-// Get Overview Stats and Charts
-app.get('/api/dashboard/stats', authenticateToken, (req, res) => {
-  const stats = {
-    totalRevenue: 0,
-    totalCOGS: 0,
-    totalExpenses: 0,
-    totalAdSpend: 0,
-    netProfit: 0,
-    totalOrders: 0,
-    totalCustomers: 0,
-    lowStockItemsCount: 0,
-    monthlyPerformance: {},
-    topProducts: [],
-    adSpendByPlatform: {}
-  };
+    const activeOrders = orders.filter((order) => order.delivery_status !== 'Cancelled');
 
-  // Run multiple queries in sequence using promises or nested callbacks.
-  // SQLite is fast, simple nesting is sufficient here.
+    const totalRevenue = activeOrders.reduce((sum, order) => sum + ((Number(order.qty) || 0) * (Number(order.selling_price) || 0)), 0);
+    const totalCOGS = activeOrders.reduce((sum, order) => sum + ((Number(order.qty) || 0) * (Number(order.cost_price) || 0)), 0);
+    const totalExpenses = expenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
+    const totalAdSpend = adSpend.reduce((sum, ad) => sum + (Number(ad.amount) || 0), 0);
+    const netProfit = totalRevenue - totalCOGS - totalExpenses - totalAdSpend;
 
-  // 1. Order Stats (Revenue, COGS, Order count)
-  db.all(`
-    SELECT 
-      SUM(qty * selling_price) as revenue,
-      SUM(qty * cost_price) as cogs,
-      COUNT(id) as order_count
-    FROM orders
-    WHERE delivery_status != 'Cancelled'
-  `, [], (err, orderRows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    const orderData = orderRows[0] || {};
-    stats.totalRevenue = orderData.revenue || 0;
-    stats.totalCOGS = orderData.cogs || 0;
-    stats.totalOrders = orderData.order_count || 0;
+    const distinctOrderCustomers = new Set(orders.map((order) => (order.customer_name || '').trim().toLowerCase()).filter(Boolean));
+    const manualOnlyCount = manualCustomers.filter((customer) => !distinctOrderCustomers.has((customer.name || '').trim().toLowerCase())).length;
+    const totalCustomers = distinctOrderCustomers.size + manualOnlyCount;
 
-    // 2. Total Expenses
-    db.all(`SELECT SUM(amount) as expenses FROM expenses`, [], (err, expRows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      stats.totalExpenses = expRows[0].expenses || 0;
-
-      // 3. Total Ad Spend
-      db.all(`SELECT SUM(amount) as adspend FROM ad_spend`, [], (err, adRows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        stats.totalAdSpend = adRows[0].adspend || 0;
-
-        // Calculate Net Profit
-        stats.netProfit = stats.totalRevenue - stats.totalCOGS - stats.totalExpenses - stats.totalAdSpend;
-
-        // 4. Distinct Customers from orders & database
-        db.all(`
-          SELECT COUNT(DISTINCT customer_name) as distinct_order_cust
-          FROM orders
-        `, [], (err, distinctRows) => {
-          if (err) return res.status(500).json({ error: err.message });
-          
-          db.all(`
-            SELECT COUNT(*) as manual_cust 
-            FROM customers 
-            WHERE name NOT IN (SELECT DISTINCT customer_name FROM orders)
-          `, [], (err, manualRows) => {
-            if (err) return res.status(500).json({ error: err.message });
-            stats.totalCustomers = (distinctRows[0].distinct_order_cust || 0) + (manualRows[0].manual_cust || 0);
-
-            // 5. Low Stock Count
-            db.all(`
-              SELECT p.id, p.name, p.opening_stock, p.reorder_level,
-                     (SELECT IFNULL(SUM(qty), 0) FROM orders WHERE product_id = p.id AND delivery_status != 'Cancelled') as sold_qty,
-                     (SELECT IFNULL(SUM(qty), 0) FROM restock_history WHERE product_id = p.id) as restocked_qty
-              FROM products p
-            `, [], (err, prodRows) => {
-              if (err) return res.status(500).json({ error: err.message });
-              
-              let lowStockCount = 0;
-              prodRows.forEach(p => {
-                const remaining = p.opening_stock + p.restocked_qty - p.sold_qty;
-                if (remaining <= p.reorder_level) {
-                  lowStockCount++;
-                }
-              });
-              stats.lowStockItemsCount = lowStockCount;
-
-              // 6. Monthly Aggregations for Charts (Line Chart)
-              // Fetch orders monthly
-              db.all(`
-                SELECT 
-                  strftime('%Y-%m', date) as month,
-                  SUM(qty * selling_price) as revenue,
-                  SUM(qty * cost_price) as cogs
-                FROM orders
-                WHERE delivery_status != 'Cancelled'
-                GROUP BY month
-              `, [], (err, monthlyOrders) => {
-                if (err) return res.status(500).json({ error: err.message });
-
-                // Fetch expenses monthly
-                db.all(`
-                  SELECT strftime('%Y-%m', date) as month, SUM(amount) as expenses
-                  FROM expenses
-                  GROUP BY month
-                `, [], (err, monthlyExpenses) => {
-                  if (err) return res.status(500).json({ error: err.message });
-
-                  // Fetch ad spend monthly
-                  db.all(`
-                    SELECT strftime('%Y-%m', date) as month, SUM(amount) as adspend
-                    FROM ad_spend
-                    GROUP BY month
-                  `, [], (err, monthlyAdSpend) => {
-                    if (err) return res.status(500).json({ error: err.message });
-
-                    // Combine monthly stats
-                    const performance = {};
-                    const allMonths = new Set([
-                      ...monthlyOrders.map(m => m.month),
-                      ...monthlyExpenses.map(m => m.month),
-                      ...monthlyAdSpend.map(m => m.month)
-                    ]);
-
-                    allMonths.forEach(m => {
-                      if (!m) return;
-                      const orderM = monthlyOrders.find(o => o.month === m) || {};
-                      const expM = monthlyExpenses.find(e => e.month === m) || {};
-                      const adM = monthlyAdSpend.find(a => a.month === m) || {};
-
-                      const rev = orderM.revenue || 0;
-                      const cog = orderM.cogs || 0;
-                      const exp = expM.expenses || 0;
-                      const ad = adM.adspend || 0;
-
-                      performance[m] = {
-                        revenue: rev,
-                        cogs: cog,
-                        expenses: exp,
-                        adspend: ad,
-                        netProfit: rev - cog - exp - ad
-                      };
-                    });
-
-                    stats.monthlyPerformance = performance;
-
-                    // 7. Top Selling Products (Doughnut Chart)
-                    db.all(`
-                      SELECT p.name, SUM(o.qty) as total_qty
-                      FROM orders o
-                      JOIN products p ON o.product_id = p.id
-                      WHERE o.delivery_status != 'Cancelled'
-                      GROUP BY p.name
-                      ORDER BY total_qty DESC
-                    `, [], (err, topProds) => {
-                      if (err) return res.status(500).json({ error: err.message });
-                      stats.topProducts = topProds;
-
-                      // 8. Ad Spend by Platform (Bar Chart)
-                      db.all(`
-                        SELECT platform, SUM(amount) as total_amount
-                        FROM ad_spend
-                        GROUP BY platform
-                      `, [], (err, adPlatforms) => {
-                        if (err) return res.status(500).json({ error: err.message });
-                        
-                        adPlatforms.forEach(row => {
-                          stats.adSpendByPlatform[row.platform] = row.total_amount;
-                        });
-
-                        res.json(stats);
-                      });
-                    });
-                  });
-                });
-              });
-            });
-          });
-        });
-      });
+    const soldByProductId = {};
+    activeOrders.forEach((order) => {
+      const productId = Number(order.product_id);
+      soldByProductId[productId] = (soldByProductId[productId] || 0) + (Number(order.qty) || 0);
     });
-  });
-});
 
-// --- ORDERS ENDPOINTS ---
+    const restockedByProductId = {};
+    restocks.forEach((restock) => {
+      const productId = Number(restock.product_id);
+      restockedByProductId[productId] = (restockedByProductId[productId] || 0) + (Number(restock.qty) || 0);
+    });
 
-// Get all orders with details
-app.get('/api/orders', authenticateToken, (req, res) => {
-  const { search, status, platform } = req.query;
-  let query = `
-    SELECT o.*, p.name as product_name, (o.qty * o.selling_price) as revenue, (o.qty * o.cost_price) as cost,
-           ((o.qty * o.selling_price) - (o.qty * o.cost_price)) as profit
-    FROM orders o
-    LEFT JOIN products p ON o.product_id = p.id
-  `;
-  const params = [];
-  const conditions = [];
-
-  if (search) {
-    conditions.push(`(o.id LIKE ? OR o.customer_name LIKE ? OR o.phone_number LIKE ? OR o.notes LIKE ?)`);
-    const searchVal = `%${search}%`;
-    params.push(searchVal, searchVal, searchVal, searchVal);
-  }
-
-  if (status) {
-    conditions.push(`o.delivery_status = ?`);
-    params.push(status);
-  }
-
-  if (platform) {
-    conditions.push(`o.platform = ?`);
-    params.push(platform);
-  }
-
-  if (conditions.length > 0) {
-    query += ` WHERE ` + conditions.join(' AND ');
-  }
-
-  query += ` ORDER BY o.id DESC`;
-
-  db.all(query, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Get next Order ID (e.g. ORD-1031)
-app.get('/api/orders/next-id', authenticateToken, (req, res) => {
-  db.get(`SELECT id FROM orders ORDER BY id DESC LIMIT 1`, [], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    
-    let nextId = 'ORD-1001';
-    if (row && row.id) {
-      const match = row.id.match(/ORD-(\d+)/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        nextId = `ORD-${num + 1}`;
+    let lowStockItemsCount = 0;
+    products.forEach((product) => {
+      const productId = Number(product.id);
+      const soldQty = soldByProductId[productId] || 0;
+      const restockedQty = restockedByProductId[productId] || 0;
+      const remaining = (Number(product.opening_stock) || 0) + restockedQty - soldQty;
+      if (remaining <= (Number(product.reorder_level) || 0)) {
+        lowStockItemsCount += 1;
       }
-    }
-    res.json({ nextId });
-  });
+    });
+
+    const monthlyPerformance = {};
+    activeOrders.forEach((order) => {
+      const month = monthKey(order.date);
+      if (!month) return;
+      monthlyPerformance[month] = monthlyPerformance[month] || { revenue: 0, cogs: 0, expenses: 0, adspend: 0, netProfit: 0 };
+      monthlyPerformance[month].revenue += (Number(order.qty) || 0) * (Number(order.selling_price) || 0);
+      monthlyPerformance[month].cogs += (Number(order.qty) || 0) * (Number(order.cost_price) || 0);
+    });
+
+    expenses.forEach((expense) => {
+      const month = monthKey(expense.date);
+      if (!month) return;
+      monthlyPerformance[month] = monthlyPerformance[month] || { revenue: 0, cogs: 0, expenses: 0, adspend: 0, netProfit: 0 };
+      monthlyPerformance[month].expenses += Number(expense.amount) || 0;
+    });
+
+    const adSpendByPlatform = {};
+    adSpend.forEach((entry) => {
+      const month = monthKey(entry.date);
+      if (month) {
+        monthlyPerformance[month] = monthlyPerformance[month] || { revenue: 0, cogs: 0, expenses: 0, adspend: 0, netProfit: 0 };
+        monthlyPerformance[month].adspend += Number(entry.amount) || 0;
+      }
+
+      const platform = entry.platform || 'Other';
+      adSpendByPlatform[platform] = (adSpendByPlatform[platform] || 0) + (Number(entry.amount) || 0);
+    });
+
+    Object.keys(monthlyPerformance).forEach((month) => {
+      const row = monthlyPerformance[month];
+      row.netProfit = row.revenue - row.cogs - row.expenses - row.adspend;
+    });
+
+    const productNameById = {};
+    products.forEach((product) => {
+      productNameById[Number(product.id)] = product.name;
+    });
+
+    const topProductMap = {};
+    activeOrders.forEach((order) => {
+      const name = productNameById[Number(order.product_id)] || 'Unknown';
+      topProductMap[name] = (topProductMap[name] || 0) + (Number(order.qty) || 0);
+    });
+
+    const topProducts = Object.entries(topProductMap)
+      .map(([name, total_qty]) => ({ name, total_qty }))
+      .sort((a, b) => b.total_qty - a.total_qty);
+
+    return res.json({
+      totalRevenue,
+      totalCOGS,
+      totalExpenses,
+      totalAdSpend,
+      netProfit,
+      totalOrders: activeOrders.length,
+      totalCustomers,
+      lowStockItemsCount,
+      monthlyPerformance,
+      topProducts,
+      adSpendByPlatform
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// Place new order
-app.post('/api/orders', authenticateToken, (req, res) => {
-  const { date, customer_name, address, phone_number, product_id, qty, selling_price, platform, payment_method, delivery_status, notes } = req.body;
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const { search, status, platform } = req.query;
+    const [orders, products] = await Promise.all([
+      getCollectionDocs('orders'),
+      getCollectionDocs('products')
+    ]);
 
-  if (!customer_name || !product_id || !qty || selling_price === undefined) {
-    return res.status(400).json({ error: 'Customer Name, Product, Qty, and Selling Price are required' });
+    const productNameById = {};
+    products.forEach((product) => {
+      productNameById[Number(product.id)] = product.name;
+    });
+
+    let rows = orders.map((order) => {
+      const qty = Number(order.qty) || 0;
+      const sellingPrice = Number(order.selling_price) || 0;
+      const costPrice = Number(order.cost_price) || 0;
+      return {
+        ...order,
+        product_name: productNameById[Number(order.product_id)] || null,
+        revenue: qty * sellingPrice,
+        cost: qty * costPrice,
+        profit: (qty * sellingPrice) - (qty * costPrice)
+      };
+    });
+
+    if (search) {
+      const query = String(search).toLowerCase();
+      rows = rows.filter((order) =>
+        String(order.id || '').toLowerCase().includes(query) ||
+        String(order.customer_name || '').toLowerCase().includes(query) ||
+        String(order.phone_number || '').toLowerCase().includes(query) ||
+        String(order.notes || '').toLowerCase().includes(query)
+      );
+    }
+
+    if (status) {
+      rows = rows.filter((order) => String(order.delivery_status || '') === String(status));
+    }
+
+    if (platform) {
+      rows = rows.filter((order) => String(order.platform || '') === String(platform));
+    }
+
+    rows.sort((a, b) => orderNumber(b.id) - orderNumber(a.id));
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
+});
 
-  // Find cost price from product database
-  db.get(`SELECT cost_price FROM products WHERE id = ?`, [product_id], (err, product) => {
-    if (err || !product) {
+app.get('/api/orders/next-id', authenticateToken, async (req, res) => {
+  try {
+    const nextId = await getNextOrderId();
+    return res.json({ nextId });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const { date, customer_name, address, phone_number, product_id, qty, selling_price, platform, payment_method, delivery_status, notes } = req.body;
+
+    if (!customer_name || !product_id || !qty || selling_price === undefined) {
+      return res.status(400).json({ error: 'Customer Name, Product, Qty, and Selling Price are required' });
+    }
+
+    const normalizedProductId = Number(product_id);
+    const productSnap = await db.collection('products').doc(String(normalizedProductId)).get();
+    if (!productSnap.exists) {
       return res.status(400).json({ error: 'Invalid Product selected' });
     }
 
-    // Auto generate next Order ID
-    db.get(`SELECT id FROM orders ORDER BY id DESC LIMIT 1`, [], (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
-      
-      let nextId = 'ORD-1001';
-      if (row && row.id) {
-        const match = row.id.match(/ORD-(\d+)/);
-        if (match) {
-          const num = parseInt(match[1], 10);
-          nextId = `ORD-${num + 1}`;
-        }
+    const product = productSnap.data();
+    const nextId = await getNextOrderId();
+    const orderDate = date || new Date().toISOString().split('T')[0];
+
+    const order = {
+      id: nextId,
+      date: orderDate,
+      customer_name,
+      address: address || '',
+      phone_number: phone_number || '',
+      product_id: normalizedProductId,
+      qty: Number(qty),
+      cost_price: Number(product.cost_price),
+      selling_price: Number(selling_price),
+      platform: platform || 'Instagram',
+      payment_method: payment_method || 'COD',
+      delivery_status: delivery_status || 'Delivered',
+      notes: notes || ''
+    };
+
+    await db.collection('orders').doc(nextId).set(order);
+    return res.json({ message: 'Order placed successfully', orderId: nextId });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, customer_name, address, phone_number, product_id, qty, selling_price, platform, payment_method, delivery_status, notes } = req.body;
+
+    const orderRef = db.collection('orders').doc(id);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const order = orderSnap.data();
+
+    const selectedProductId = Number(product_id || order.product_id);
+    const productSnap = await db.collection('products').doc(String(selectedProductId)).get();
+    if (!productSnap.exists) {
+      return res.status(400).json({ error: 'Invalid product selected' });
+    }
+    const product = productSnap.data();
+
+    const updatedOrder = {
+      ...order,
+      date: date || order.date,
+      customer_name: customer_name || order.customer_name,
+      address: address !== undefined ? address : order.address,
+      phone_number: phone_number !== undefined ? phone_number : order.phone_number,
+      product_id: selectedProductId,
+      qty: qty !== undefined ? Number(qty) : Number(order.qty),
+      cost_price: Number(product.cost_price),
+      selling_price: selling_price !== undefined ? Number(selling_price) : Number(order.selling_price),
+      platform: platform || order.platform,
+      payment_method: payment_method || order.payment_method,
+      delivery_status: delivery_status || order.delivery_status,
+      notes: notes !== undefined ? notes : order.notes
+    };
+
+    await orderRef.set(updatedOrder);
+    return res.json({ message: 'Order updated successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    await db.collection('orders').doc(req.params.id).delete();
+    return res.json({ message: 'Order deleted successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/expenses', authenticateToken, async (req, res) => {
+  try {
+    const rows = await getCollectionDocs('expenses');
+    rows.sort((a, b) => {
+      if ((a.date || '') === (b.date || '')) {
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
       }
-
-      // Default date to today if empty
-      const orderDate = date || new Date().toISOString().split('T')[0];
-      const defaultPlatform = platform || 'Instagram';
-      const defaultPayment = payment_method || 'COD';
-      const defaultStatus = delivery_status || 'Delivered';
-
-      db.run(`
-        INSERT INTO orders (id, date, customer_name, address, phone_number, product_id, qty, cost_price, selling_price, platform, payment_method, delivery_status, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        nextId, orderDate, customer_name, address, phone_number, product_id, qty, product.cost_price, parseFloat(selling_price), defaultPlatform, defaultPayment, defaultStatus, notes
-      ], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Order placed successfully', orderId: nextId });
-      });
+      return String(b.date || '').localeCompare(String(a.date || ''));
     });
-  });
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// Update order status or details
-app.put('/api/orders/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  const { date, customer_name, address, phone_number, product_id, qty, selling_price, platform, payment_method, delivery_status, notes } = req.body;
+app.post('/api/expenses', authenticateToken, async (req, res) => {
+  try {
+    const { date, category, description, amount, payment_method } = req.body;
+    if (!date || !category || !amount || !payment_method) {
+      return res.status(400).json({ error: 'Date, Category, Amount, and Payment Method are required' });
+    }
 
-  db.get(`SELECT * FROM orders WHERE id = ?`, [id], (err, order) => {
-    if (err || !order) return res.status(404).json({ error: 'Order not found' });
+    const id = await getNextCounter('expense_id', 1);
+    const expense = {
+      id,
+      date,
+      category,
+      description: description || '',
+      amount: Number(amount),
+      payment_method
+    };
 
-    // Look up cost price of selected product in case it changed
-    db.get(`SELECT cost_price FROM products WHERE id = ?`, [product_id || order.product_id], (err, product) => {
-      if (err || !product) return res.status(400).json({ error: 'Invalid product selected' });
+    await db.collection('expenses').doc(String(id)).set(expense);
+    return res.json({ message: 'Expense logged successfully', id });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
-      db.run(`
-        UPDATE orders
-        SET date = ?, customer_name = ?, address = ?, phone_number = ?, product_id = ?, qty = ?, cost_price = ?,
-            selling_price = ?, platform = ?, payment_method = ?, delivery_status = ?, notes = ?
-        WHERE id = ?
-      `, [
-        date || order.date,
-        customer_name || order.customer_name,
-        address !== undefined ? address : order.address,
-        phone_number !== undefined ? phone_number : order.phone_number,
-        product_id || order.product_id,
-        qty || order.qty,
-        product.cost_price,
-        selling_price !== undefined ? parseFloat(selling_price) : order.selling_price,
-        platform || order.platform,
-        payment_method || order.payment_method,
-        delivery_status || order.delivery_status,
-        notes !== undefined ? notes : order.notes,
-        id
-      ], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Order updated successfully' });
-      });
+app.delete('/api/expenses/:id', authenticateToken, async (req, res) => {
+  try {
+    await db.collection('expenses').doc(String(req.params.id)).delete();
+    return res.json({ message: 'Expense deleted successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/adspend', authenticateToken, async (req, res) => {
+  try {
+    const rows = await getCollectionDocs('ad_spend');
+    rows.sort((a, b) => {
+      if ((a.date || '') === (b.date || '')) {
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      }
+      return String(b.date || '').localeCompare(String(a.date || ''));
     });
-  });
-});
-
-// Delete Order
-app.delete('/api/orders/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  db.run(`DELETE FROM orders WHERE id = ?`, [id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Order deleted successfully' });
-  });
-});
-
-// --- EXPENSES ENDPOINTS ---
-
-// Get expenses
-app.get('/api/expenses', authenticateToken, (req, res) => {
-  db.all(`SELECT * FROM expenses ORDER BY date DESC, id DESC`, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Add expense
-app.post('/api/expenses', authenticateToken, (req, res) => {
-  const { date, category, description, amount, payment_method } = req.body;
-  if (!date || !category || !amount || !payment_method) {
-    return res.status(400).json({ error: 'Date, Category, Amount, and Payment Method are required' });
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-
-  db.run(`
-    INSERT INTO expenses (date, category, description, amount, payment_method)
-    VALUES (?, ?, ?, ?, ?)
-  `, [date, category, description, parseFloat(amount), payment_method], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Expense logged successfully', id: this.lastID });
-  });
 });
 
-// Delete expense
-app.delete('/api/expenses/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  db.run(`DELETE FROM expenses WHERE id = ?`, [id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Expense deleted successfully' });
-  });
-});
+app.post('/api/adspend', authenticateToken, async (req, res) => {
+  try {
+    const { date, platform, campaign, amount, notes_objective } = req.body;
+    if (!date || !platform || !campaign || !amount) {
+      return res.status(400).json({ error: 'Date, Platform, Campaign, and Amount are required' });
+    }
 
-// --- AD SPEND ENDPOINTS ---
+    const id = await getNextCounter('adspend_id', 1);
+    const record = {
+      id,
+      date,
+      platform,
+      campaign,
+      amount: Number(amount),
+      notes_objective: notes_objective || ''
+    };
 
-// Get ad spend entries
-app.get('/api/adspend', authenticateToken, (req, res) => {
-  db.all(`SELECT * FROM ad_spend ORDER BY date DESC, id DESC`, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Add ad spend
-app.post('/api/adspend', authenticateToken, (req, res) => {
-  const { date, platform, campaign, amount, notes_objective } = req.body;
-  if (!date || !platform || !campaign || !amount) {
-    return res.status(400).json({ error: 'Date, Platform, Campaign, and Amount are required' });
+    await db.collection('ad_spend').doc(String(id)).set(record);
+    return res.json({ message: 'Ad spend entry recorded successfully', id });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-
-  db.run(`
-    INSERT INTO ad_spend (date, platform, campaign, amount, notes_objective)
-    VALUES (?, ?, ?, ?, ?)
-  `, [date, platform, campaign, parseFloat(amount), notes_objective], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Ad spend entry recorded successfully', id: this.lastID });
-  });
 });
 
-// Delete ad spend
-app.delete('/api/adspend/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  db.run(`DELETE FROM ad_spend WHERE id = ?`, [id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Ad spend entry deleted successfully' });
-  });
+app.delete('/api/adspend/:id', authenticateToken, async (req, res) => {
+  try {
+    await db.collection('ad_spend').doc(String(req.params.id)).delete();
+    return res.json({ message: 'Ad spend entry deleted successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// --- PRODUCTS & INVENTORY ---
+app.get('/api/products', authenticateToken, async (req, res) => {
+  try {
+    const [products, orders, restocks] = await Promise.all([
+      getCollectionDocs('products'),
+      getCollectionDocs('orders'),
+      getCollectionDocs('restock_history')
+    ]);
 
-// Get all products with stock information
-app.get('/api/products', authenticateToken, (req, res) => {
-  db.all(`
-    SELECT p.*,
-           (SELECT IFNULL(SUM(qty), 0) FROM orders WHERE product_id = p.id AND delivery_status != 'Cancelled') as sold_qty,
-           (SELECT IFNULL(SUM(qty), 0) FROM restock_history WHERE product_id = p.id) as restocked_qty
-    FROM products p
-  `, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    
-    // Calculate final remaining stock and status
-    const products = rows.map(p => {
-      const remaining_stock = p.opening_stock + p.restocked_qty - p.sold_qty;
-      const stock_status = remaining_stock <= p.reorder_level ? 'LOW STOCK' : 'OK';
+    const soldByProductId = {};
+    orders
+      .filter((order) => order.delivery_status !== 'Cancelled')
+      .forEach((order) => {
+        const productId = Number(order.product_id);
+        soldByProductId[productId] = (soldByProductId[productId] || 0) + (Number(order.qty) || 0);
+      });
+
+    const restockedByProductId = {};
+    restocks.forEach((restock) => {
+      const productId = Number(restock.product_id);
+      restockedByProductId[productId] = (restockedByProductId[productId] || 0) + (Number(restock.qty) || 0);
+    });
+
+    const rows = products.map((product) => {
+      const productId = Number(product.id);
+      const sold_qty = soldByProductId[productId] || 0;
+      const restocked_qty = restockedByProductId[productId] || 0;
+      const remaining_stock = (Number(product.opening_stock) || 0) + restocked_qty - sold_qty;
+      const stock_status = remaining_stock <= (Number(product.reorder_level) || 0) ? 'LOW STOCK' : 'OK';
       return {
-        ...p,
+        ...product,
+        sold_qty,
+        restocked_qty,
         remaining_stock,
         stock_status
       };
     });
-    res.json(products);
-  });
+
+    rows.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// Add dynamic restock
-app.post('/api/inventory/restock', authenticateToken, (req, res) => {
-  const { product_id, qty, date, notes } = req.body;
-  if (!product_id || !qty || !date) {
-    return res.status(400).json({ error: 'Product, Qty, and Date are required' });
-  }
-
-  db.run(`
-    INSERT INTO restock_history (product_id, date, qty, notes)
-    VALUES (?, ?, ?, ?)
-  `, [parseInt(product_id), date, parseInt(qty), notes], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Restocking recorded successfully', id: this.lastID });
-  });
-});
-
-// Add new product
-app.post('/api/products', authenticateToken, (req, res) => {
-  const { name, sku, category, cost_price, default_selling_price, opening_stock, reorder_level } = req.body;
-  if (!name || !sku || cost_price === undefined || default_selling_price === undefined) {
-    return res.status(400).json({ error: 'Name, SKU, Cost Price, and Default Selling Price are required' });
-  }
-
-  db.run(`
-    INSERT INTO products (name, sku, category, cost_price, default_selling_price, opening_stock, reorder_level)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `, [
-    name, sku, category, parseFloat(cost_price), parseFloat(default_selling_price),
-    parseInt(opening_stock || 0), parseInt(reorder_level || 10)
-  ], function(err) {
-    if (err) {
-      if (err.message.includes('UNIQUE constraint')) {
-        return res.status(400).json({ error: 'A product with this SKU already exists.' });
-      }
-      return res.status(500).json({ error: err.message });
+app.post('/api/inventory/restock', authenticateToken, async (req, res) => {
+  try {
+    const { product_id, qty, date, notes } = req.body;
+    if (!product_id || !qty || !date) {
+      return res.status(400).json({ error: 'Product, Qty, and Date are required' });
     }
-    res.json({ message: 'Product created successfully', id: this.lastID });
-  });
+
+    const id = await getNextCounter('restock_id', 1);
+    const restock = {
+      id,
+      product_id: Number(product_id),
+      qty: Number(qty),
+      date,
+      notes: notes || ''
+    };
+
+    await db.collection('restock_history').doc(String(id)).set(restock);
+    return res.json({ message: 'Restocking recorded successfully', id });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// --- CUSTOMERS ENDPOINT ---
+app.post('/api/products', authenticateToken, async (req, res) => {
+  try {
+    const { name, sku, category, cost_price, default_selling_price, opening_stock, reorder_level } = req.body;
+    if (!name || !sku || cost_price === undefined || default_selling_price === undefined) {
+      return res.status(400).json({ error: 'Name, SKU, Cost Price, and Default Selling Price are required' });
+    }
 
-// Retrieve the aggregated customer records (from orders and explicit custom records)
-app.get('/api/customers', authenticateToken, (req, res) => {
-  // Query 1: Aggregated customer info from orders
-  const ordersQuery = `
-    SELECT 
-      customer_name as name,
-      phone_number as phone,
-      address,
-      platform,
-      COUNT(id) as total_orders,
-      SUM(qty * selling_price) as total_spent,
-      MAX(date) as last_order_date
-    FROM orders
-    GROUP BY customer_name, phone_number
-  `;
+    const existingProducts = await getCollectionDocs('products');
+    const duplicateSku = existingProducts.find((product) => String(product.sku || '').toLowerCase() === String(sku).toLowerCase());
+    if (duplicateSku) {
+      return res.status(400).json({ error: 'A product with this SKU already exists.' });
+    }
 
-  db.all(ordersQuery, [], (err, orderCusts) => {
-    if (err) return res.status(500).json({ error: err.message });
+    const id = await getNextCounter('product_id', 1);
+    const product = {
+      id,
+      name,
+      sku,
+      category: category || '',
+      cost_price: Number(cost_price),
+      default_selling_price: Number(default_selling_price),
+      opening_stock: Number(opening_stock || 0),
+      reorder_level: Number(reorder_level || 10)
+    };
 
-    // Query 2: Explicit customer database table
-    db.all(`SELECT * FROM customers`, [], (err, manualCusts) => {
-      if (err) return res.status(500).json({ error: err.message });
+    await db.collection('products').doc(String(id)).set(product);
+    return res.json({ message: 'Product created successfully', id });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
-      // Merge results
-      const customerMap = {};
+app.get('/api/customers', authenticateToken, async (req, res) => {
+  try {
+    const [orders, manualCustomers] = await Promise.all([
+      getCollectionDocs('orders'),
+      getCollectionDocs('customers')
+    ]);
 
-      // Seed with manual customers (starting with CUST-001, CUST-002, etc.)
-      manualCusts.forEach(c => {
-        const key = `${c.name.toLowerCase().trim()}_${(c.phone || '').trim()}`;
-        customerMap[key] = {
-          id: c.id,
-          name: c.name,
-          phone: c.phone || '-',
-          address: c.address || '-',
-          platform: c.platform || '-',
+    const customerMap = {};
+
+    manualCustomers.forEach((customer) => {
+      const key = `${String(customer.name || '').toLowerCase().trim()}_${String(customer.phone || '').trim()}`;
+      customerMap[key] = {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone || '-',
+        address: customer.address || '-',
+        platform: customer.platform || '-',
+        total_orders: 0,
+        total_spent: 0,
+        last_order_date: '-',
+        notes: customer.notes || ''
+      };
+    });
+
+    const aggregatedFromOrders = {};
+    orders.forEach((order) => {
+      const key = `${String(order.customer_name || '').toLowerCase().trim()}_${String(order.phone_number || '').trim()}`;
+      if (!key || key === '_') return;
+
+      if (!aggregatedFromOrders[key]) {
+        aggregatedFromOrders[key] = {
+          name: order.customer_name,
+          phone: order.phone_number || '-',
+          address: order.address || '-',
+          platform: order.platform || '-',
           total_orders: 0,
           total_spent: 0,
-          last_order_date: '-',
-          notes: c.notes || ''
+          last_order_date: '-'
         };
-      });
+      }
 
-      // Overlay details from orders
-      let customCustCounter = manualCusts.length + 1;
+      aggregatedFromOrders[key].total_orders += 1;
+      aggregatedFromOrders[key].total_spent += (Number(order.qty) || 0) * (Number(order.selling_price) || 0);
 
-      orderCusts.forEach(c => {
-        const key = `${c.name.toLowerCase().trim()}_${(c.phone || '').trim()}`;
-        
-        if (customerMap[key]) {
-          // Exists in database, update calculated stats
-          customerMap[key].total_orders = c.total_orders;
-          customerMap[key].total_spent = c.total_spent;
-          customerMap[key].last_order_date = c.last_order_date;
-          // Carry over address/platform if they order newer
-          if (c.address && c.address !== '-') customerMap[key].address = c.address;
-          if (c.platform && c.platform !== '-') customerMap[key].platform = c.platform;
-        } else {
-          // New dynamic customer from orders
-          const paddedId = String(customCustCounter++).padStart(3, '0');
-          customerMap[key] = {
-            id: `CUST-${paddedId}`,
-            name: c.name,
-            phone: c.phone || '-',
-            address: c.address || '-',
-            platform: c.platform || '-',
-            total_orders: c.total_orders,
-            total_spent: c.total_spent,
-            last_order_date: c.last_order_date,
-            notes: 'Dynamically created from sales'
-          };
-        }
-      });
-
-      res.json(Object.values(customerMap));
+      if (order.date && order.date > aggregatedFromOrders[key].last_order_date) {
+        aggregatedFromOrders[key].last_order_date = order.date;
+        aggregatedFromOrders[key].address = order.address || aggregatedFromOrders[key].address;
+        aggregatedFromOrders[key].platform = order.platform || aggregatedFromOrders[key].platform;
+      }
     });
-  });
+
+    let customCustCounter = manualCustomers.length + 1;
+    Object.values(aggregatedFromOrders).forEach((orderCustomer) => {
+      const key = `${String(orderCustomer.name || '').toLowerCase().trim()}_${String(orderCustomer.phone === '-' ? '' : orderCustomer.phone || '').trim()}`;
+
+      if (customerMap[key]) {
+        customerMap[key].total_orders = orderCustomer.total_orders;
+        customerMap[key].total_spent = orderCustomer.total_spent;
+        customerMap[key].last_order_date = orderCustomer.last_order_date;
+        if (orderCustomer.address && orderCustomer.address !== '-') customerMap[key].address = orderCustomer.address;
+        if (orderCustomer.platform && orderCustomer.platform !== '-') customerMap[key].platform = orderCustomer.platform;
+      } else {
+        const paddedId = String(customCustCounter++).padStart(3, '0');
+        customerMap[key] = {
+          id: `CUST-${paddedId}`,
+          name: orderCustomer.name,
+          phone: orderCustomer.phone || '-',
+          address: orderCustomer.address || '-',
+          platform: orderCustomer.platform || '-',
+          total_orders: orderCustomer.total_orders,
+          total_spent: orderCustomer.total_spent,
+          last_order_date: orderCustomer.last_order_date,
+          notes: 'Dynamically created from sales'
+        };
+      }
+    });
+
+    return res.json(Object.values(customerMap));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// Add customer manually
-app.post('/api/customers', authenticateToken, (req, res) => {
-  const { name, phone, address, platform, notes } = req.body;
-  if (!name) return res.status(400).json({ error: 'Customer name is required' });
-
-  // Generate CUST-XXX ID
-  db.get(`SELECT id FROM customers ORDER BY id DESC LIMIT 1`, [], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    
-    let nextId = 'CUST-001';
-    if (row && row.id) {
-      const match = row.id.match(/CUST-(\d+)/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        nextId = `CUST-${String(num + 1).padStart(3, '0')}`;
-      }
+app.post('/api/customers', authenticateToken, async (req, res) => {
+  try {
+    const { name, phone, address, platform, notes } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Customer name is required' });
     }
 
-    db.run(`
-      INSERT INTO customers (id, name, phone, address, platform, notes)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [nextId, name, phone, address, platform, notes], function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Customer added successfully', id: nextId });
-    });
-  });
+    const id = await getNextCustomerId();
+    const customer = {
+      id,
+      name,
+      phone: phone || '',
+      address: address || '',
+      platform: platform || '',
+      notes: notes || ''
+    };
+
+    await db.collection('customers').doc(id).set(customer);
+    return res.json({ message: 'Customer added successfully', id });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// --- P&L STATEMENT ENDPOINT ---
-app.get('/api/pl', authenticateToken, (req, res) => {
-  // Aggregate sales, expenses and ad spends by month for the P&L table
-  const plData = {};
+app.get('/api/pl', authenticateToken, async (req, res) => {
+  try {
+    const [orders, expenses, adSpend] = await Promise.all([
+      getCollectionDocs('orders'),
+      getCollectionDocs('expenses'),
+      getCollectionDocs('ad_spend')
+    ]);
 
-  // Initialize all 12 months for 2026 (or current year)
-  const currentYear = new Date().getFullYear();
-  const months = [
-    '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'
-  ];
+    const plData = {};
+    const currentYear = new Date().getFullYear();
+    const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 
-  months.forEach(m => {
-    const key = `${currentYear}-${m}`;
-    plData[key] = {
-      monthName: new Date(`${currentYear}-${m}-15`).toLocaleString('default', { month: 'long' }),
-      monthKey: key,
-      revenue: 0,
-      cogs: 0,
-      grossProfit: 0,
-      expenses: 0,
-      adSpend: 0,
-      netProfit: 0
-    };
-  });
+    months.forEach((m) => {
+      const key = `${currentYear}-${m}`;
+      plData[key] = {
+        monthName: new Date(`${currentYear}-${m}-15`).toLocaleString('default', { month: 'long' }),
+        monthKey: key,
+        revenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        expenses: 0,
+        adSpend: 0,
+        netProfit: 0
+      };
+    });
 
-  // Query 1: Sales (Revenue & COGS)
-  db.all(`
-    SELECT strftime('%Y-%m', date) as month, SUM(qty * selling_price) as revenue, SUM(qty * cost_price) as cogs
-    FROM orders
-    WHERE delivery_status != 'Cancelled'
-    GROUP BY month
-  `, [], (err, sales) => {
-    if (err) return res.status(500).json({ error: err.message });
+    orders
+      .filter((order) => order.delivery_status !== 'Cancelled')
+      .forEach((order) => {
+        const month = monthKey(order.date);
+        if (!month) return;
+        if (!plData[month]) {
+          const parts = month.split('-');
+          plData[month] = {
+            monthName: `${new Date(`${parts[0]}-${parts[1]}-15`).toLocaleString('default', { month: 'long' })} ${parts[0]}`,
+            monthKey: month,
+            revenue: 0,
+            cogs: 0,
+            grossProfit: 0,
+            expenses: 0,
+            adSpend: 0,
+            netProfit: 0
+          };
+        }
 
-    sales.forEach(s => {
-      if (plData[s.month]) {
-        plData[s.month].revenue = s.revenue || 0;
-        plData[s.month].cogs = s.cogs || 0;
-      } else if (s.month) {
-        // Month outside of current year (e.g. historical data)
-        const parts = s.month.split('-');
-        const monthName = new Date(`${parts[0]}-${parts[1]}-15`).toLocaleString('default', { month: 'long' }) + ` ${parts[0]}`;
-        plData[s.month] = {
-          monthName,
-          monthKey: s.month,
-          revenue: s.revenue || 0,
-          cogs: s.cogs || 0,
+        plData[month].revenue += (Number(order.qty) || 0) * (Number(order.selling_price) || 0);
+        plData[month].cogs += (Number(order.qty) || 0) * (Number(order.cost_price) || 0);
+      });
+
+    expenses.forEach((expense) => {
+      const month = monthKey(expense.date);
+      if (!month) return;
+      if (!plData[month]) {
+        const parts = month.split('-');
+        plData[month] = {
+          monthName: `${new Date(`${parts[0]}-${parts[1]}-15`).toLocaleString('default', { month: 'long' })} ${parts[0]}`,
+          monthKey: month,
+          revenue: 0,
+          cogs: 0,
           grossProfit: 0,
           expenses: 0,
           adSpend: 0,
           netProfit: 0
         };
       }
+      plData[month].expenses += Number(expense.amount) || 0;
     });
 
-    // Query 2: Expenses
-    db.all(`
-      SELECT strftime('%Y-%m', date) as month, SUM(amount) as expenses
-      FROM expenses
-      GROUP BY month
-    `, [], (err, exps) => {
-      if (err) return res.status(500).json({ error: err.message });
-
-      exps.forEach(e => {
-        if (plData[e.month]) {
-          plData[e.month].expenses = e.expenses || 0;
-        } else if (e.month) {
-          const parts = e.month.split('-');
-          const monthName = new Date(`${parts[0]}-${parts[1]}-15`).toLocaleString('default', { month: 'long' }) + ` ${parts[0]}`;
-          plData[e.month] = {
-            monthName,
-            monthKey: e.month,
-            revenue: 0,
-            cogs: 0,
-            grossProfit: 0,
-            expenses: e.expenses || 0,
-            adSpend: 0,
-            netProfit: 0
-          };
-        }
-      });
-
-      // Query 3: Ad Spend
-      db.all(`
-        SELECT strftime('%Y-%m', date) as month, SUM(amount) as adspend
-        FROM ad_spend
-        GROUP BY month
-      `, [], (err, ads) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        ads.forEach(a => {
-          if (plData[a.month]) {
-            plData[a.month].adSpend = a.adspend || 0;
-          } else if (a.month) {
-            const parts = a.month.split('-');
-            const monthName = new Date(`${parts[0]}-${parts[1]}-15`).toLocaleString('default', { month: 'long' }) + ` ${parts[0]}`;
-            plData[a.month] = {
-              monthName,
-              monthKey: a.month,
-              revenue: 0,
-              cogs: 0,
-              grossProfit: 0,
-              expenses: 0,
-              adSpend: a.adspend || 0,
-              netProfit: 0
-            };
-          }
-        });
-
-        // Compute derived figures (Gross Profit, Net Profit)
-        const reports = Object.values(plData).map(m => {
-          m.grossProfit = m.revenue - m.cogs;
-          m.netProfit = m.grossProfit - m.expenses - m.adSpend;
-          return m;
-        });
-
-        // Sort by month key ascending
-        reports.sort((a, b) => a.monthKey.localeCompare(b.monthKey));
-
-        res.json(reports);
-      });
+    adSpend.forEach((entry) => {
+      const month = monthKey(entry.date);
+      if (!month) return;
+      if (!plData[month]) {
+        const parts = month.split('-');
+        plData[month] = {
+          monthName: `${new Date(`${parts[0]}-${parts[1]}-15`).toLocaleString('default', { month: 'long' })} ${parts[0]}`,
+          monthKey: month,
+          revenue: 0,
+          cogs: 0,
+          grossProfit: 0,
+          expenses: 0,
+          adSpend: 0,
+          netProfit: 0
+        };
+      }
+      plData[month].adSpend += Number(entry.amount) || 0;
     });
-  });
+
+    const reports = Object.values(plData).map((m) => {
+      const grossProfit = m.revenue - m.cogs;
+      const netProfit = grossProfit - m.expenses - m.adSpend;
+      return {
+        ...m,
+        grossProfit,
+        netProfit
+      };
+    });
+
+    reports.sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+    return res.json(reports);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`Motovia Backend Server running at http://localhost:${PORT}`);
-});
+async function startServer() {
+  try {
+    await ensureSeedData();
+    app.listen(PORT, () => {
+      console.log(`Motovia Backend Server running at http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Failed to initialize Firebase backend:', err);
+    process.exit(1);
+  }
+}
+
+startServer();
