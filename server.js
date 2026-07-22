@@ -40,6 +40,17 @@ function initializeFirebase() {
 
 initializeFirebase();
 const db = admin.firestore();
+ensureSeedData().catch((err) => {
+  console.error('Failed to run database seeding:', err);
+});
+
+// Middleware to rewrite Netlify Functions path prefix if it exists
+app.use((req, res, next) => {
+  if (req.url.startsWith('/.netlify/functions/server')) {
+    req.url = req.url.replace('/.netlify/functions/server', '');
+  }
+  next();
+});
 
 app.use(express.json());
 app.use(cookieParser());
@@ -855,14 +866,17 @@ app.get('/api/pl', authenticateToken, async (req, res) => {
 
 async function startServer() {
   try {
-    await ensureSeedData();
     app.listen(PORT, () => {
       console.log(`Motovia Backend Server running at http://localhost:${PORT}`);
     });
   } catch (err) {
-    console.error('Failed to initialize Firebase backend:', err);
+    console.error('Failed to start server:', err);
     process.exit(1);
   }
 }
 
-startServer();
+module.exports = app;
+
+if (require.main === module) {
+  startServer();
+}
