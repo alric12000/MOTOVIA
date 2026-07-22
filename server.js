@@ -17,25 +17,43 @@ function initializeFirebase() {
 
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON;
   const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const projectId = process.env.FIREBASE_PROJECT_ID;
 
   if (keyJson) {
-    admin.initializeApp({
-      credential: admin.credential.cert(JSON.parse(keyJson))
-    });
-    return;
+    try {
+      const serviceAccount = JSON.parse(keyJson);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id || projectId
+      });
+      return;
+    } catch (err) {
+      throw new Error(`Invalid FIREBASE_SERVICE_ACCOUNT_KEY_JSON: ${err.message}`);
+    }
   }
 
   if (keyPath) {
-    const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    try {
+      const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id || projectId
+      });
+      return;
+    } catch (err) {
+      throw new Error(`Could not read Firebase service account from ${keyPath}: ${err.message}`);
+    }
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+      credential: admin.credential.applicationDefault(),
+      projectId
     });
     return;
   }
 
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault()
-  });
+  throw new Error('Firebase Admin SDK is not configured. Set FIREBASE_SERVICE_ACCOUNT_KEY_JSON or FIREBASE_SERVICE_ACCOUNT_PATH.');
 }
 
 initializeFirebase();
