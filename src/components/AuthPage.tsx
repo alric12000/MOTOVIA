@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { LogIn } from 'lucide-react';
 
@@ -18,20 +18,14 @@ export function AuthPage() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-        try {
-          await createUserWithEmailAndPassword(auth, email, password);
-        } catch (createErr: any) {
-          if (createErr.code === 'auth/operation-not-allowed') {
-            setError('Email/Password sign-in is disabled. Please enable it in the Firebase Console.');
-          } else {
-            setError(createErr.message || 'Account creation failed.');
-          }
-        }
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('Invalid username or password.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please try again later.');
       } else if (err.code === 'auth/operation-not-allowed') {
         setError('Email/Password sign-in is disabled. Please enable it in the Firebase Console.');
       } else {
-        setError(err.message || 'Login failed.');
+        setError('Login failed. Please try again.');
       }
     } finally {
       setIsLoading(false);
