@@ -4,8 +4,8 @@ import { auth } from '../firebase';
 import { LogIn } from 'lucide-react';
 
 export function AuthPage() {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -13,8 +13,6 @@ export function AuthPage() {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-    const email = username.includes('@') ? username : `${username}@motovia.com`;
-    
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) {
@@ -49,14 +47,14 @@ export function AuthPage() {
         <div className="bg-white/[0.02] border border-white/5 py-8 px-4 shadow-2xl sm:rounded-2xl sm:px-10">
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2">Username or Email</label>
+              <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2">Email</label>
               <input 
                 required 
-                type="text" 
-                value={username} 
-                onChange={e => setUsername(e.target.value)} 
+                type="email" 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
                 className="w-full px-4 py-2.5 bg-black/40 border border-white/10 rounded focus:outline-none focus:border-rose-500 text-white text-sm" 
-                placeholder="admin" 
+                placeholder="your@email.com" 
               />
             </div>
             <div>
