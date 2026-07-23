@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { Package, DollarSign, LogOut, Menu, LayoutDashboard, Receipt, Megaphone, Users, LineChart, FileText } from 'lucide-react';
+import { Package, DollarSign, LogOut, Menu, LayoutDashboard, Receipt, Megaphone, Users, LineChart, FileText, Database } from 'lucide-react';
 import { auth } from '../firebase';
 import { useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
@@ -27,6 +27,7 @@ export function Layout() {
     { to: '/customers', icon: Users, label: 'Customers' },
     { to: '/pnl', icon: LineChart, label: 'P&L Statement' },
     { to: '/invoice', icon: FileText, label: 'Invoice' },
+    { to: '/import', icon: Database, label: 'Import Data' },
   ];
 
   return (
@@ -48,7 +49,7 @@ export function Layout() {
           <div className="text-white font-serif italic text-2xl tracking-tighter">Motovia <span className="text-rose-600">Nepal</span></div>
           <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mt-1">Premium Auto Care Admin</div>
         </div>
-        
+
         <nav className="flex-1 px-4 space-y-2 mt-2">
           {navItems.map((item) => (
             <NavLink
@@ -57,8 +58,8 @@ export function Layout() {
               onClick={() => setMobileMenuOpen(false)}
               className={({ isActive }) => cn(
                 "px-4 py-3 rounded-lg flex items-center gap-3 transition-colors",
-                isActive 
-                  ? "bg-white/5 border border-white/10 text-white" 
+                isActive
+                  ? "bg-white/5 border border-white/10 text-white"
                   : "hover:bg-white/5 text-slate-300"
               )}
             >

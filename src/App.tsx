@@ -13,6 +13,7 @@ import { AdSpendPage } from './components/AdSpendPage';
 import { CustomersPage } from './components/CustomersPage';
 import { PnLPage } from './components/PnLPage';
 import { InvoicePage } from './components/InvoicePage';
+import { DataImportPage } from './components/DataImportPage';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -38,7 +39,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={!user ? <AuthPage /> : <Navigate to="/" />} />
-        
+
         <Route path="/" element={user ? <Layout /> : <Navigate to="/login" />}>
           <Route index element={<DashboardPage />} />
           <Route path="inventory" element={<InventoryPage />} />
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="customers" element={<CustomersPage />} />
           <Route path="pnl" element={<PnLPage />} />
           <Route path="invoice" element={<InvoicePage />} />
+          <Route path="import" element={<DataImportPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
