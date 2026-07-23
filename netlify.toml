@@ -8,6 +8,12 @@
   # Directory containing the built static assets
   publish = "dist"
 
+# Firebase client-side keys are intentionally public and safe to expose.
+# They are protected by Firebase Security Rules, not by being secret.
+# Omit them from Netlify's secrets scanner to prevent false-positive build failures.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_API_KEY,VITE_FIREBASE_APP_ID,VITE_FIREBASE_AUTH_DOMAIN,VITE_FIREBASE_MESSAGING_SENDER_ID,VITE_FIREBASE_PROJECT_ID,VITE_FIREBASE_STORAGE_BUCKET"
+
 # Redirect rule to handle React Router client-side routing.
 # This redirects all traffic to index.html so React Router can load the correct route.
 [[redirects]]
