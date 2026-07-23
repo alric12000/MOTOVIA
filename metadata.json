@@ -1,0 +1,6 @@
+{
+  "name": "Motovia Nepal Admin Dashboard",
+  "description": "Admin dashboard for Motovia Nepal to track sales, expenses, and inventory.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Auto care product inventory item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "category": { "type": "string", "maxLength": 50 },
+        "costPrice": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "reorderLevel": { "type": "number" }
+      },
+      "required": ["name", "sku", "costPrice", "sellingPrice", "stock"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Sales record",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 30 },
+        "orderId": { "type": "string", "maxLength": 50 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "productId": { "type": "string", "maxLength": 100 },
+        "quantity": { "type": "number" },
+        "revenue": { "type": "number" },
+        "cost": { "type": "number" },
+        "profit": { "type": "number" },
+        "paymentMethod": { "type": "string", "maxLength": 20 },
+        "deliveryStatus": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["date", "orderId", "customerName", "productId", "quantity", "revenue", "cost", "profit"]
+    }
+  },
+  "firestore": {
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "List of products"
+    },
+    "sales/{saleId}": {
+      "schema": "Sale",
+      "description": "List of sales"
+    }
+  }
+}

@@ -1,22 +1,15 @@
+# Netlify Configuration File
+# Learn more at https://docs.netlify.com/configure-builds/file-based-configuration/
+
 [build]
-  publish = "public"
-  functions = "netlify/functions"
+  # Command to build the project
+  command = "npm run build"
+  
+  # Directory containing the built static assets
+  publish = "dist"
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/server/api/:splat"
-  status = 200
-
-[[redirects]]
-  from = "/login"
-  to = "/login.html"
-  status = 200
-
-[[redirects]]
-  from = "/login.html"
-  to = "/login.html"
-  status = 200
-
+# Redirect rule to handle React Router client-side routing.
+# This redirects all traffic to index.html so React Router can load the correct route.
 [[redirects]]
   from = "/*"
   to = "/index.html"

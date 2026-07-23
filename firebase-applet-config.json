@@ -1,0 +1,12 @@
+{
+  "projectId": "REDACTED_PROJECT_ID",
+  "appId": "REDACTED_APP_ID",
+  "apiKey": "REDACTED_API_KEY",
+  "authDomain": "REDACTED_PROJECT_ID.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-bac8b351-a454-45e8-b658-460451c5b6e0",
+  "storageBucket": "REDACTED_PROJECT_ID.firebasestorage.app",
+  "messagingSenderId": "REDACTED_SENDER_ID",
+  "measurementId": "",
+  "oAuthClientId": "REDACTED_SENDER_ID-91nhd6a4619ns32i5sjpmc2netufbbl7.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
+}
