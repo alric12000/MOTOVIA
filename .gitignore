@@ -3,4 +3,6 @@
 .env.production
 dist/
 node_modules/
-package-lock.json
+
+# package-lock.json is committed on purpose: Vercel builds from it, so the
+# deployed dependency tree matches what was tested locally.

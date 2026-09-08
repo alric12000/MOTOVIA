@@ -7,7 +7,7 @@ editable dropdown settings, and an XLSX importer for your existing tracker sprea
 - **Frontend:** React + Vite (SPA)
 - **Backend:** Firebase — Firestore + Email/Password Auth (no Cloud Functions; stock stays
   consistent via Firestore transactions, so it runs 100% free on the Spark plan)
-- **Hosting:** Netlify (free)
+- **Hosting:** Vercel (free Hobby plan)
 
 ## 1. Install
 
@@ -64,15 +64,35 @@ Two ways to get started:
 - **Or seed defaults**: **More → Seed default products & lists** creates Shampoo / FoamX / Towel,
   the Wash Combo + Clean Wash Combo bundles, and all dropdown lists.
 
-## 6. Deploy to Netlify (free)
+## 6. Deploy to Vercel (free)
 
-1. Push this `app/` folder to a Git repo (GitHub/GitLab).
-2. Netlify → **Add new site → Import an existing project** → pick the repo.
-3. Build settings are read from [`netlify.toml`](netlify.toml) (build `npm run build`, publish
-   `dist`, with SPA redirect). Set the same `VITE_FIREBASE_*` variables under
-   **Site settings → Environment variables**.
-4. Deploy. Then in Firebase **Authentication → Settings → Authorized domains**, add your
-   Netlify domain so login works in production.
+The repo root holds this project in an `app/` subfolder, so Vercel needs its **Root
+Directory** pointed at `app` — everything else is read from [`vercel.json`](vercel.json).
+
+1. Push to GitHub/GitLab (this repo is already on GitHub).
+2. Vercel → **Add New… → Project** → import the repo.
+3. **Root Directory:** click *Edit* and set it to `app`. Framework should then be detected
+   as **Vite**; build command `npm run build` and output directory `dist` come from
+   `vercel.json`, so leave them on the defaults it shows.
+4. Expand **Environment Variables** and add the same six `VITE_FIREBASE_*` values from your
+   local `.env`. They must be present *before* the first build — Vite inlines them at build
+   time, so adding them later requires a redeploy.
+5. **Deploy.**
+6. In Firebase → **Authentication → Settings → Authorized domains**, add your Vercel domains
+   (`your-project.vercel.app`, plus any custom domain). Login fails with
+   `auth/unauthorized-domain` until you do.
+
+Every push to `main` redeploys production; pushes to other branches get preview URLs. Preview
+deployments are publicly reachable by default — if that matters, turn on
+**Settings → Deployment Protection → Vercel Authentication**.
+
+### A note on the Firebase keys
+
+`VITE_FIREBASE_*` values are compiled into the JavaScript bundle and are visible to anyone who
+loads the site. That is normal and expected for Firebase web apps — the API key identifies the
+project, it does not grant access. What actually protects your data is
+[`firestore.rules`](firestore.rules) requiring an authenticated user, so keep those rules
+published and keep sign-up disabled in the Firebase console.
 
 ## How things work
 
@@ -109,5 +129,5 @@ src/pages/       Login, Dashboard, OrderEntry, Orders, Inventory, Expenses, AdSp
                  Invoice, Settings, Import, More
 src/components/  Nav, TopBar, ProtectedRoute, StatusButtons
 firestore.rules  security rules (auth-only)
-netlify.toml     build + SPA redirect
+vercel.json      build + SPA rewrite
 ```

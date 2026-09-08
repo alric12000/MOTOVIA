@@ -12,7 +12,7 @@ dist-ssr/
 .vite/
 
 # Tooling
-.netlify/
+.vercel/
 .firebase/
 firebase-debug.log
 
