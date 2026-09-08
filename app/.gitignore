@@ -1,0 +1,26 @@
+# App-level ignores (see also the root .gitignore).
+
+# Secrets — every .env variant except the blank template.
+.env
+.env.*
+!.env.example
+
+# Dependencies & build output
+node_modules/
+dist/
+dist-ssr/
+.vite/
+
+# Tooling
+.netlify/
+.firebase/
+firebase-debug.log
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+._*
+*.swp

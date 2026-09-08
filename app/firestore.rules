@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Private business tool: any signed-in user (you) can read/write everything.
+    // There is no public access.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
