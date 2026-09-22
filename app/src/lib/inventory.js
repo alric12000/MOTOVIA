@@ -134,3 +134,108 @@ export async function restockProduct(productId, addQty) {
     tx.update(ref, { restocked_qty: cur + (Number(addQty) || 0) })
   })
 }
+
+/**
+ * Update an existing order with new details (customer, location/address, price, product, quantity, status, etc.).
+ * Atomically adjusts component stock deductions based on net changes.
+ */
+export async function updateOrderWithStock(orderId, newOrderData, oldProduct, newProduct) {
+  const orderRef = doc(db, 'orders', orderId)
+
+  return runTransaction(db, async (tx) => {
+    // 1. Read existing order snap
+    const orderSnap = await tx.get(orderRef)
+    if (!orderSnap.exists()) throw new Error('Order not found')
+    const currentOrder = orderSnap.data()
+
+    const wasStockApplied = currentOrder.stock_applied !== false
+    const targetStatus = newOrderData.status ?? currentOrder.status
+    const willSell = !NON_SELLING_STATUSES.includes(targetStatus)
+
+    const oldQty = Number(currentOrder.quantity) || 0
+    const newQty = Number(newOrderData.quantity) || 0
+
+    const oldComponents = oldProduct ? componentRefsFor(oldProduct) : []
+    const newComponents = newProduct ? componentRefsFor(newProduct) : []
+
+    // Calculate net delta per component product doc ID
+    // delta > 0 means add to sold_qty (deduct stock)
+    // delta < 0 means subtract from sold_qty (restock)
+    const deltasMap = new Map()
+
+    if (wasStockApplied) {
+      // Revert old stock deduction
+      for (const c of oldComponents) {
+        const pId = c.ref.id
+        const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
+        current.delta -= c.qtyPerUnit * oldQty
+        deltasMap.set(pId, current)
+      }
+    }
+
+    if (willSell) {
+      // Apply new stock deduction
+      for (const c of newComponents) {
+        const pId = c.ref.id
+        const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
+        current.delta += c.qtyPerUnit * newQty
+        deltasMap.set(pId, current)
+      }
+    }
+
+    // Collect all component refs that have non-zero delta
+    const activeDeltas = Array.from(deltasMap.values()).filter((item) => item.delta !== 0)
+
+    // 2. Read component snaps inside transaction (all reads before writes)
+    const compSnaps = await Promise.all(activeDeltas.map((item) => tx.get(item.ref)))
+
+    const updates = []
+    compSnaps.forEach((snap, i) => {
+      if (!snap.exists()) return
+      const data = snap.data()
+      const delta = activeDeltas[i].delta
+      const remaining = computeRemaining(data)
+      const newSold = (Number(data.sold_qty) || 0) + delta
+
+      if (delta > 0 && remaining - delta < 0) {
+        throw new Error(`Not enough stock for ${data.name} (have ${remaining}, need ${delta})`)
+      }
+      if (newSold < 0) {
+        throw new Error(`Stock underflow for ${data.name}`)
+      }
+      updates.push({ ref: activeDeltas[i].ref, newSold })
+    })
+
+    // 3. Perform writes
+    for (const u of updates) {
+      tx.update(u.ref, { sold_qty: u.newSold })
+    }
+
+    const costPriceSnapshot = newProduct
+      ? (Number(newProduct.cost_price) || 0)
+      : (currentOrder.cost_price_snapshot ?? 0)
+
+    const patch = {
+      customer_name: (newOrderData.customer_name ?? currentOrder.customer_name ?? '').trim(),
+      phone: (newOrderData.phone ?? currentOrder.phone ?? '').trim(),
+      address: (newOrderData.address ?? currentOrder.address ?? '').trim(),
+      platform: newOrderData.platform ?? currentOrder.platform ?? '',
+      product_id: newOrderData.product_id ?? currentOrder.product_id ?? '',
+      product_name: newProduct ? newProduct.name : (currentOrder.product_name || ''),
+      product_type: newProduct ? newProduct.type : (currentOrder.product_type || 'single'),
+      quantity: newQty,
+      selling_price: Number(newOrderData.selling_price) ?? (Number(currentOrder.selling_price) || 0),
+      cost_price_snapshot: costPriceSnapshot,
+      payment_method: newOrderData.payment_method ?? currentOrder.payment_method ?? 'COD',
+      status: targetStatus,
+      notes: (newOrderData.notes ?? currentOrder.notes ?? '').trim(),
+      order_date: newOrderData.order_date ?? currentOrder.order_date ?? '',
+      stock_applied: willSell,
+      updated_at: serverTimestamp(),
+      ...(targetStatus !== currentOrder.status ? { status_updated_at: serverTimestamp() } : {}),
+    }
+
+    tx.update(orderRef, patch)
+  })
+}
+
