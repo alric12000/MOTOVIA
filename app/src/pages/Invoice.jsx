@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useCollection } from '../lib/useCollection'
+import { useCollection, indexById } from '../lib/useCollection'
+import { extractOrderItems } from '../lib/inventory'
 import { formatNPR } from '../lib/calc'
 
 export default function Invoice() {
   const { orderId } = useParams()
   const { data: orders } = useCollection('orders')
+  const { data: products } = useCollection('products')
+  const byId = useMemo(() => indexById(products), [products])
   const [picked, setPicked] = useState(orderId || '')
 
   const sorted = useMemo(
@@ -18,7 +21,14 @@ export default function Invoice() {
     [orders, picked]
   )
 
-  const total = order ? (Number(order.selling_price) || 0) * (Number(order.quantity) || 1) : 0
+  const items = useMemo(() => {
+    if (!order) return []
+    return extractOrderItems(order, byId)
+  }, [order, byId])
+
+  const total = useMemo(() => {
+    return items.reduce((sum, it) => sum + ((Number(it.selling_price) || 0) * (Number(it.quantity) || 1)), 0)
+  }, [items])
 
   return (
     <div className="page">
@@ -75,12 +85,14 @@ export default function Invoice() {
                 </tr>
               </thead>
               <tbody>
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '8px 4px' }}>{order.product_name}</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'center' }}>{order.quantity}</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>{formatNPR(order.selling_price)}</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>{formatNPR(total)}</td>
-                </tr>
+                {items.map((it, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '8px 4px' }}>{it.product_name}</td>
+                    <td style={{ padding: '8px 4px', textAlign: 'center' }}>{it.quantity}</td>
+                    <td style={{ padding: '8px 4px', textAlign: 'right' }}>{formatNPR(it.selling_price)}</td>
+                    <td style={{ padding: '8px 4px', textAlign: 'right' }}>{formatNPR(it.selling_price * it.quantity)}</td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot>
                 <tr>
@@ -105,3 +117,4 @@ export default function Invoice() {
     </div>
   )
 }
+

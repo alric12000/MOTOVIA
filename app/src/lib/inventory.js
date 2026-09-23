@@ -1,5 +1,5 @@
 import {
-  doc, collection, runTransaction, serverTimestamp,
+  doc, collection, runTransaction, serverTimestamp, setDoc, updateDoc
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { NON_SELLING_STATUSES } from './constants'
@@ -7,7 +7,8 @@ import { NON_SELLING_STATUSES } from './constants'
 const ORDER_COUNTER = doc(db, 'counters', 'orders')
 
 // Given a product doc, return [{ ref, qtyPerUnit }] of the COMPONENT products it consumes.
-function componentRefsFor(product) {
+export function componentRefsFor(product) {
+  if (!product) return []
   if (product.type === 'bundle' && Array.isArray(product.components)) {
     return product.components.map((c) => ({
       ref: doc(db, 'products', c.productId),
@@ -25,30 +26,76 @@ function computeRemaining(data) {
 }
 
 /**
- * Create an order and atomically deduct component stock.
- * `order` must include product_id, quantity, selling_price, etc.
- * Allocates the next ORD-#### id from counters/orders in the same transaction.
+ * Extract normalized items list from an order object or legacy single product fields.
  */
-export async function createOrderWithStock(order, product) {
-  const qty = Number(order.quantity) || 0
-  const components = componentRefsFor(product)
+export function extractOrderItems(order, productsById = {}) {
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    return order.items.map((it) => {
+      const p = productsById[it.product_id]
+      return {
+        product_id: it.product_id || '',
+        product_name: p ? p.name : (it.product_name || 'Product'),
+        product_type: p ? p.type : (it.product_type || 'component'),
+        quantity: Math.max(1, Number(it.quantity) || 1),
+        selling_price: Number(it.selling_price) ?? (p ? Number(p.default_selling_price) || 0 : 0),
+        cost_price_snapshot: Number(it.cost_price_snapshot) ?? (p ? Number(p.cost_price) || 0 : 0),
+      }
+    })
+  }
+
+  // Legacy single-item order fallback
+  const pId = order.product_id
+  const p = productsById[pId]
+  return [{
+    product_id: pId || '',
+    product_name: p ? p.name : (order.product_name || 'Product'),
+    product_type: p ? p.type : (order.product_type || 'component'),
+    quantity: Math.max(1, Number(order.quantity) || 1),
+    selling_price: Number(order.selling_price) ?? (p ? Number(p.default_selling_price) || 0 : 0),
+    cost_price_snapshot: Number(order.cost_price_snapshot) ?? (p ? Number(p.cost_price) || 0 : 0),
+  }]
+}
+
+/**
+ * Create an order and atomically deduct component stock for all items (including extra products).
+ * `order` can contain `items: [...]` or single product fields.
+ */
+export async function createOrderWithStock(order, productsById = {}) {
+  const items = extractOrderItems(order, productsById)
+
+  // Map of component productId -> total required units across all order items
+  const componentNeeds = new Map()
+  for (const item of items) {
+    const p = productsById[item.product_id]
+    if (!p) continue
+    const refs = componentRefsFor(p)
+    const qty = item.quantity
+    for (const c of refs) {
+      const pId = c.ref.id
+      const current = componentNeeds.get(pId) || { ref: c.ref, need: 0 }
+      current.need += c.qtyPerUnit * qty
+      componentNeeds.set(pId, current)
+    }
+  }
+
+  const needsList = Array.from(componentNeeds.values())
 
   return runTransaction(db, async (tx) => {
     // --- all reads first (Firestore transaction requirement) ---
     const counterSnap = await tx.get(ORDER_COUNTER)
-    const compSnaps = await Promise.all(components.map((c) => tx.get(c.ref)))
+    const compSnaps = await Promise.all(needsList.map((c) => tx.get(c.ref)))
 
     // Verify + compute new stock for each component.
     const updates = []
     compSnaps.forEach((snap, i) => {
-      if (!snap.exists()) throw new Error(`Missing product: ${components[i].ref.id}`)
+      if (!snap.exists()) throw new Error(`Missing product: ${needsList[i].ref.id}`)
       const data = snap.data()
-      const need = components[i].qtyPerUnit * qty
+      const need = needsList[i].need
       const remaining = computeRemaining(data)
       if (remaining - need < 0) {
         throw new Error(`Not enough stock for ${data.name} (have ${remaining}, need ${need})`)
       }
-      updates.push({ ref: components[i].ref, newSold: (Number(data.sold_qty) || 0) + need })
+      updates.push({ ref: needsList[i].ref, newSold: (Number(data.sold_qty) || 0) + need })
     })
 
     // Allocate next order number.
@@ -56,17 +103,37 @@ export async function createOrderWithStock(order, product) {
     const nextNo = current + 1
     const orderNo = `ORD-${nextNo}`
 
+    // Compute top-level summary totals for backward compatibility
+    const totalRevenue = items.reduce((s, it) => s + (it.selling_price * it.quantity), 0)
+    const totalCogs = items.reduce((s, it) => s + (it.cost_price_snapshot * it.quantity), 0)
+    const totalQty = items.reduce((s, it) => s + it.quantity, 0)
+    const productNameSummary = items.length === 1
+      ? items[0].product_name
+      : items.map((it) => `${it.product_name} ×${it.quantity}`).join(', ')
+
     // --- writes ---
     for (const u of updates) tx.update(u.ref, { sold_qty: u.newSold })
     tx.set(ORDER_COUNTER, { current: nextNo }, { merge: true })
 
     const orderRef = doc(collection(db, 'orders'))
     tx.set(orderRef, {
-      ...order,
+      customer_name: (order.customer_name || '').trim(),
+      phone: (order.phone || '').trim(),
+      address: (order.address || '').trim(),
+      platform: order.platform || '',
+      payment_method: order.payment_method || 'COD',
+      status: order.status || 'Pending',
+      notes: (order.notes || '').trim(),
+      order_date: order.order_date || new Date().toISOString().slice(0, 10),
+      items,
+      // Backward-compatible fields:
+      product_id: items[0]?.product_id || '',
+      product_name: productNameSummary,
+      product_type: items[0]?.product_type || 'component',
+      quantity: totalQty,
+      selling_price: items.length === 1 ? items[0].selling_price : totalRevenue,
+      cost_price_snapshot: items.length === 1 ? items[0].cost_price_snapshot : totalCogs,
       order_no: orderNo,
-      product_name: product.name,
-      product_type: product.type,
-      cost_price_snapshot: order.cost_price_snapshot ?? (Number(product.cost_price) || 0),
       stock_applied: true,
       created_at: serverTimestamp(),
       status_updated_at: serverTimestamp(),
@@ -76,22 +143,15 @@ export async function createOrderWithStock(order, product) {
 }
 
 /**
- * Change an order's status. Handles stock restock/re-deduct atomically:
- *  - moving INTO Returned/Cancelled while stock is applied -> restock components
- *  - moving OUT of Returned/Cancelled back to active -> re-deduct components
+ * Change an order's status. Handles stock restock/re-deduct atomically for multi-item orders.
  */
-export async function changeOrderStatus(orderId, newStatus, product) {
+export async function changeOrderStatus(orderId, newStatus, productsById = {}) {
   const orderRef = doc(db, 'orders', orderId)
-  // If the order has no linked product (e.g. an imported row we couldn't match),
-  // we can still record the status change — just skip the stock maths.
-  const canAdjustStock = Boolean(product && product.id)
-  const components = canAdjustStock ? componentRefsFor(product) : []
 
   return runTransaction(db, async (tx) => {
     const orderSnap = await tx.get(orderRef)
     if (!orderSnap.exists()) throw new Error('Order not found')
     const order = orderSnap.data()
-    const qty = Number(order.quantity) || 0
 
     const wasSelling = !NON_SELLING_STATUSES.includes(order.status)
     const willSell = !NON_SELLING_STATUSES.includes(newStatus)
@@ -100,20 +160,37 @@ export async function changeOrderStatus(orderId, newStatus, product) {
     let direction = 0 // +1 = deduct, -1 = restock
     if (wasSelling && !willSell && stockApplied) direction = -1
     else if (!wasSelling && willSell && !stockApplied) direction = +1
-    if (!canAdjustStock) direction = 0
 
-    const compSnaps = direction !== 0
-      ? await Promise.all(components.map((c) => tx.get(c.ref)))
+    const items = extractOrderItems(order, productsById)
+    const deltasMap = new Map()
+
+    if (direction !== 0) {
+      for (const item of items) {
+        const p = productsById[item.product_id]
+        if (!p) continue
+        const refs = componentRefsFor(p)
+        for (const c of refs) {
+          const pId = c.ref.id
+          const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
+          current.delta += c.qtyPerUnit * item.quantity * direction
+          deltasMap.set(pId, current)
+        }
+      }
+    }
+
+    const activeDeltas = Array.from(deltasMap.values()).filter((d) => d.delta !== 0)
+    const compSnaps = activeDeltas.length > 0
+      ? await Promise.all(activeDeltas.map((d) => tx.get(d.ref)))
       : []
 
     if (direction !== 0) {
       compSnaps.forEach((snap, i) => {
         if (!snap.exists()) return
         const data = snap.data()
-        const delta = components[i].qtyPerUnit * qty * direction
+        const delta = activeDeltas[i].delta
         const newSold = (Number(data.sold_qty) || 0) + delta
         if (newSold < 0) throw new Error(`Stock underflow for ${data.name}`)
-        tx.update(components[i].ref, { sold_qty: newSold })
+        tx.update(activeDeltas[i].ref, { sold_qty: newSold })
       })
     }
 
@@ -136,10 +213,10 @@ export async function restockProduct(productId, addQty) {
 }
 
 /**
- * Update an existing order with new details (customer, location/address, price, product, quantity, status, etc.).
- * Atomically adjusts component stock deductions based on net changes.
+ * Update an existing order with new details & items.
+ * Atomically adjusts component stock deductions based on net changes across old and new items.
  */
-export async function updateOrderWithStock(orderId, newOrderData, oldProduct, newProduct) {
+export async function updateOrderWithStock(orderId, newOrderData, productsById = {}) {
   const orderRef = doc(db, 'orders', orderId)
 
   return runTransaction(db, async (tx) => {
@@ -152,11 +229,8 @@ export async function updateOrderWithStock(orderId, newOrderData, oldProduct, ne
     const targetStatus = newOrderData.status ?? currentOrder.status
     const willSell = !NON_SELLING_STATUSES.includes(targetStatus)
 
-    const oldQty = Number(currentOrder.quantity) || 0
-    const newQty = Number(newOrderData.quantity) || 0
-
-    const oldComponents = oldProduct ? componentRefsFor(oldProduct) : []
-    const newComponents = newProduct ? componentRefsFor(newProduct) : []
+    const oldItems = extractOrderItems(currentOrder, productsById)
+    const newItems = extractOrderItems(newOrderData, productsById)
 
     // Calculate net delta per component product doc ID
     // delta > 0 means add to sold_qty (deduct stock)
@@ -165,25 +239,34 @@ export async function updateOrderWithStock(orderId, newOrderData, oldProduct, ne
 
     if (wasStockApplied) {
       // Revert old stock deduction
-      for (const c of oldComponents) {
-        const pId = c.ref.id
-        const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
-        current.delta -= c.qtyPerUnit * oldQty
-        deltasMap.set(pId, current)
+      for (const item of oldItems) {
+        const p = productsById[item.product_id]
+        if (!p) continue
+        const refs = componentRefsFor(p)
+        for (const c of refs) {
+          const pId = c.ref.id
+          const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
+          current.delta -= c.qtyPerUnit * item.quantity
+          deltasMap.set(pId, current)
+        }
       }
     }
 
     if (willSell) {
       // Apply new stock deduction
-      for (const c of newComponents) {
-        const pId = c.ref.id
-        const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
-        current.delta += c.qtyPerUnit * newQty
-        deltasMap.set(pId, current)
+      for (const item of newItems) {
+        const p = productsById[item.product_id]
+        if (!p) continue
+        const refs = componentRefsFor(p)
+        for (const c of refs) {
+          const pId = c.ref.id
+          const current = deltasMap.get(pId) || { ref: c.ref, delta: 0 }
+          current.delta += c.qtyPerUnit * item.quantity
+          deltasMap.set(pId, current)
+        }
       }
     }
 
-    // Collect all component refs that have non-zero delta
     const activeDeltas = Array.from(deltasMap.values()).filter((item) => item.delta !== 0)
 
     // 2. Read component snaps inside transaction (all reads before writes)
@@ -211,21 +294,25 @@ export async function updateOrderWithStock(orderId, newOrderData, oldProduct, ne
       tx.update(u.ref, { sold_qty: u.newSold })
     }
 
-    const costPriceSnapshot = newProduct
-      ? (Number(newProduct.cost_price) || 0)
-      : (currentOrder.cost_price_snapshot ?? 0)
+    const totalRevenue = newItems.reduce((s, it) => s + (it.selling_price * it.quantity), 0)
+    const totalCogs = newItems.reduce((s, it) => s + (it.cost_price_snapshot * it.quantity), 0)
+    const totalQty = newItems.reduce((s, it) => s + it.quantity, 0)
+    const productNameSummary = newItems.length === 1
+      ? newItems[0].product_name
+      : newItems.map((it) => `${it.product_name} ×${it.quantity}`).join(', ')
 
     const patch = {
       customer_name: (newOrderData.customer_name ?? currentOrder.customer_name ?? '').trim(),
       phone: (newOrderData.phone ?? currentOrder.phone ?? '').trim(),
       address: (newOrderData.address ?? currentOrder.address ?? '').trim(),
       platform: newOrderData.platform ?? currentOrder.platform ?? '',
-      product_id: newOrderData.product_id ?? currentOrder.product_id ?? '',
-      product_name: newProduct ? newProduct.name : (currentOrder.product_name || ''),
-      product_type: newProduct ? newProduct.type : (currentOrder.product_type || 'single'),
-      quantity: newQty,
-      selling_price: Number(newOrderData.selling_price) ?? (Number(currentOrder.selling_price) || 0),
-      cost_price_snapshot: costPriceSnapshot,
+      items: newItems,
+      product_id: newItems[0]?.product_id || '',
+      product_name: productNameSummary,
+      product_type: newItems[0]?.product_type || 'component',
+      quantity: totalQty,
+      selling_price: newItems.length === 1 ? newItems[0].selling_price : totalRevenue,
+      cost_price_snapshot: newItems.length === 1 ? newItems[0].cost_price_snapshot : totalCogs,
       payment_method: newOrderData.payment_method ?? currentOrder.payment_method ?? 'COD',
       status: targetStatus,
       notes: (newOrderData.notes ?? currentOrder.notes ?? '').trim(),
@@ -238,4 +325,39 @@ export async function updateOrderWithStock(orderId, newOrderData, oldProduct, ne
     tx.update(orderRef, patch)
   })
 }
+
+/**
+ * Add a new product / stock item to Firestore.
+ */
+export async function createProduct(productData) {
+  const ref = doc(collection(db, 'products'))
+  const data = {
+    name: productData.name.trim(),
+    sku: productData.sku.trim() || `SKU-${Date.now().toString().slice(-6)}`,
+    category: (productData.category || 'Car Care').trim(),
+    type: productData.type || 'component',
+    cost_price: Number(productData.cost_price) || 0,
+    default_selling_price: Number(productData.default_selling_price) || 0,
+    opening_stock: productData.type === 'component' ? (Number(productData.opening_stock) || 0) : 0,
+    reorder_level: productData.type === 'component' ? (Number(productData.reorder_level) || 5) : 0,
+    restocked_qty: 0,
+    sold_qty: 0,
+    active: true,
+    ...(productData.type === 'bundle' ? { components: productData.components || [] } : {}),
+  }
+  await setDoc(ref, data)
+  return { id: ref.id, ...data }
+}
+
+/**
+ * Update Cost Price (CP) and Selling Price (SP) of an existing product.
+ */
+export async function updateProductPrices(productId, costPrice, sellingPrice) {
+  const ref = doc(db, 'products', productId)
+  await updateDoc(ref, {
+    cost_price: Number(costPrice) || 0,
+    default_selling_price: Number(sellingPrice) || 0,
+  })
+}
+
 

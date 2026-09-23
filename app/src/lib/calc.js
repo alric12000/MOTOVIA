@@ -4,11 +4,21 @@ import { NON_SELLING_STATUSES } from './constants'
 export const isSellingOrder = (order) =>
   !NON_SELLING_STATUSES.includes(order.status)
 
-export const orderRevenue = (o) =>
-  isSellingOrder(o) ? (Number(o.selling_price) || 0) * (Number(o.quantity) || 0) : 0
+export const orderRevenue = (o) => {
+  if (!isSellingOrder(o)) return 0
+  if (Array.isArray(o.items) && o.items.length > 0) {
+    return o.items.reduce((s, it) => s + (Number(it.selling_price) || 0) * (Number(it.quantity) || 1), 0)
+  }
+  return (Number(o.selling_price) || 0) * (Number(o.quantity) || 0)
+}
 
-export const orderCogs = (o) =>
-  isSellingOrder(o) ? (Number(o.cost_price_snapshot) || 0) * (Number(o.quantity) || 0) : 0
+export const orderCogs = (o) => {
+  if (!isSellingOrder(o)) return 0
+  if (Array.isArray(o.items) && o.items.length > 0) {
+    return o.items.reduce((s, it) => s + (Number(it.cost_price_snapshot) || 0) * (Number(it.quantity) || 1), 0)
+  }
+  return (Number(o.cost_price_snapshot) || 0) * (Number(o.quantity) || 0)
+}
 
 export const orderProfit = (o) => orderRevenue(o) - orderCogs(o)
 
@@ -68,6 +78,27 @@ export function breakdownBy(orders, keyFn, valueFn = orderRevenue) {
   for (const o of orders) {
     const k = keyFn(o) || 'Unknown'
     map[k] = (map[k] || 0) + valueFn(o)
+  }
+  return Object.entries(map)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+}
+
+// Breakdown revenue by product (accounting for multi-item orders).
+export function breakdownByProduct(orders) {
+  const map = {}
+  for (const o of orders) {
+    if (!isSellingOrder(o)) continue
+    if (Array.isArray(o.items) && o.items.length > 0) {
+      for (const item of o.items) {
+        const k = item.product_name || 'Unknown'
+        const val = (Number(item.selling_price) || 0) * (Number(item.quantity) || 1)
+        map[k] = (map[k] || 0) + val
+      }
+    } else {
+      const k = o.product_name || 'Unknown'
+      map[k] = (map[k] || 0) + orderRevenue(o)
+    }
   }
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))

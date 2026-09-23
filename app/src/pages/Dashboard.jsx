@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { useCollection } from '../lib/useCollection'
 import {
-  summarize, monthlySeries, breakdownBy, formatNPR, isSellingOrder, remainingStock, isLowStock,
+  summarize, monthlySeries, breakdownBy, breakdownByProduct, formatNPR, isSellingOrder, remainingStock, isLowStock,
 } from '../lib/calc'
 
 const COLORS = ['#2196f3', '#4ade80', '#f59e0b', '#f87171', '#a78bfa', '#22d3ee', '#fb923c']
@@ -42,7 +42,7 @@ export default function Dashboard() {
   const byPlatform = useMemo(
     () => breakdownBy(fOrders.filter(isSellingOrder), (o) => o.platform), [fOrders])
   const byProduct = useMemo(
-    () => breakdownBy(fOrders.filter(isSellingOrder), (o) => o.product_name), [fOrders])
+    () => breakdownByProduct(fOrders), [fOrders])
 
   return (
     <div className="page">

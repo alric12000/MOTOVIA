@@ -18,8 +18,8 @@ export const NON_SELLING_STATUSES = ['Returned', 'Cancelled']
 // Used by the "Seed defaults" button when starting fresh without an import.
 export const DEFAULT_PRODUCTS = [
   {
-    name: 'Car Shampoo', sku: 'SKU-CS01', category: 'Car Care', type: 'component',
-    cost_price: 200, default_selling_price: 799, opening_stock: 150, reorder_level: 5,
+    name: 'Hydro Wash Shampoo', sku: 'SKU-CS01', category: 'Car Care', type: 'component',
+    cost_price: 150, default_selling_price: 359, opening_stock: 150, reorder_level: 5,
   },
   {
     name: 'FoamX', sku: 'SKU-FX01', category: 'Car Care', type: 'component',
@@ -35,12 +35,12 @@ export const DEFAULT_PRODUCTS = [
 export const DEFAULT_BUNDLES = [
   {
     name: 'Wash Combo', sku: 'SKU-WC01', category: 'Car Care', type: 'bundle',
-    cost_price: 800, default_selling_price: 1759,
+    cost_price: 750, default_selling_price: 1859,
     componentSkus: [{ sku: 'SKU-CS01', qty: 1 }, { sku: 'SKU-FX01', qty: 1 }],
   },
   {
     name: 'Clean Wash Combo', sku: 'SKU-CWC01', category: 'Car Care', type: 'bundle',
-    cost_price: 950, default_selling_price: 2199,
+    cost_price: 900, default_selling_price: 2199,
     componentSkus: [
       { sku: 'SKU-CS01', qty: 1 }, { sku: 'SKU-FX01', qty: 1 }, { sku: 'SKU-TW01', qty: 1 },
     ],
