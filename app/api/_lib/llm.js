@@ -10,7 +10,8 @@
 //                       the fallback can live on another provider with its own free quota
 //   LLM_FALLBACK_REASONING_EFFORT  same as above, for the fallback model
 
-const TIMEOUT_MS = 20_000
+// Per model. Two slow providers must still answer well within a chat-like wait.
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 10_000
 // Replies are asked to stay under 60 words; the headroom is for light model reasoning.
 const MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS) || 400
 
