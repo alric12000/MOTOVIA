@@ -1,10 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Private business tool: any signed-in user (you) can read/write everything.
-    // There is no public access.
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    // Private business tool: only the signed-in admin can access data. There is no
+    // public access. Server code (Vercel functions) uses the Admin SDK, which bypasses
+    // these rules entirely — so the bot rules below only constrain the browser.
+    function signedIn() { return request.auth != null; }
+
+    // Existing business data — unchanged behavior: signed-in user has full access.
+    match /products/{id}  { allow read, write: if signedIn(); }
+    match /orders/{id}    { allow read, write: if signedIn(); }
+    match /customers/{id} { allow read, write: if signedIn(); }
+    match /expenses/{id}  { allow read, write: if signedIn(); }
+    match /ad_spend/{id}  { allow read, write: if signedIn(); }
+    match /settings/{id}  { allow read, write: if signedIn(); }
+    match /counters/{id}  { allow read, write: if signedIn(); }
+
+    // --- AI auto-reply ---
+    // Conversations are created by the webhook (server). The admin may read them and
+    // toggle flags (pause, needs_human), but not create or delete them.
+    match /conversations/{cid} {
+      allow read: if signedIn();
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['auto_reply_paused', 'needs_human', 'unread']);
+      // Messages are written only by the server (/api/send for manual replies).
+      match /messages/{mid} { allow read: if signedIn(); }
     }
+    // Bot knowledge + global settings: editable from the admin UI.
+    match /bot/{id}             { allow read, write: if signedIn(); }
+    // Server-maintained: usage counters and idempotency markers.
+    match /bot_usage/{date}     { allow read: if signedIn(); }
+    match /processed_events/{id} { allow read: if signedIn(); }
   }
 }

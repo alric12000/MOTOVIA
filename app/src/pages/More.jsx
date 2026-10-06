@@ -11,6 +11,7 @@ const links = [
   { to: '/invoice', ic: '🧾', label: 'Invoices' },
   { to: '/import', ic: '📥', label: 'Import spreadsheet' },
   { to: '/settings', ic: '⚙️', label: 'Settings' },
+  { to: '/bot/knowledge', ic: '🧠', label: 'Bot Knowledge' },
 ]
 
 export default function More() {
