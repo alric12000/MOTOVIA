@@ -80,7 +80,7 @@ export async function processInbound(db, ev) {
     }
 
     const { settings } = await loadKnowledge(db)
-    if (!settings.auto_reply_enabled || conv?.auto_reply_paused) {
+    if (!settings.auto_reply_enabled || conv?.auto_reply_paused || ev.autoReply === false) {
       return { status: 'auto-reply-off' }
     }
 
@@ -91,6 +91,12 @@ export async function processInbound(db, ev) {
     if (out.layer === 'fallback' && conv?.needs_human) {
       await convRef.update({ language: out.language })
       return { status: 'already-waiting-for-human' }
+    }
+    // Public channels (TikTok comments): only post real answers, never greetings or
+    // "team will reply" — those would just be noise under the video.
+    if (adapter.publicReplies && (out.layer === 'template' || out.layer === 'fallback')) {
+      await convRef.update({ language: out.language, ...(out.needs_human ? { needs_human: true } : {}) })
+      return { status: 'public-no-answer' }
     }
 
     const sent = await adapter.send({ ...ev, text: out.reply })

@@ -106,6 +106,85 @@ published and keep sign-up disabled in the Firebase console.
   Cancelled orders are excluded from revenue and COGS.
 - **Settings** drives every dropdown — edit lists there, no code changes needed.
 
+## AI auto-reply (Messenger, Instagram, WhatsApp, TikTok)
+
+Customer messages arrive at Vercel functions in [`api/`](api), get an instant reply, and show
+up live in **Inbox** (bottom tab). Everything runs on free tiers. There are still no Cloud
+Functions, so Firebase stays on Spark.
+
+**Pages:** Inbox (conversations, stats, global pause) · conversation view (history, manual
+reply, pause bot here, mark handled) · **More → Bot Knowledge** (FAQs + reply templates) ·
+**More → Test Bot** (try messages with no platform connected; "Run sample set" sends 15).
+
+**How a reply is chosen**, cheapest first:
+
+1. **Language** is detected without an LLM. Devanagari, Romanized Nepali words (ho, cha, kati,
+   ma, ko, aaucha…) or a Nepali/English mix → reply in **Romanized Nepali**. Otherwise English.
+2. **Greeting** ("hi", "namaste") → template, no LLM call.
+3. **LLM** (`LLM_MODEL`, then `LLM_FALLBACK_MODEL` on error / 429 / invalid output). The prompt
+   holds only the relevant products and FAQs, the last 6 messages, masked phone numbers and
+   addresses, and `max_tokens` 220. Replies that contain Devanagari or a Rs. amount not in your
+   data are rejected.
+4. **Keyword FAQ matcher**: kati / rate / price / paisa, delivery / kati din, combo / k k
+   aaucha, cod / esewa / khalti, return / exchange…
+5. **"Our team will reply soon"** in the customer's language, and the conversation is flagged
+   **needs human**.
+
+The bot knows only live product names, prices, bundle contents and in/out of stock. It never
+sees cost prices or exact counts. Payment methods come from Settings, and everything else from
+Bot Knowledge.
+
+**Speed vs. Meta's timeout:** webhooks check the signature, answer `200` immediately and finish
+the LLM call + send with `waitUntil` (`@vercel/functions`) in the same invocation. Meta never
+waits on the LLM and nothing needs a paid background-job feature. A message is processed once
+per platform message id (`processed_events`), so Meta retries never cause double replies.
+
+**Model choice:** `google/gemma-4-31b-it:free` on OpenRouter, with `google/gemma-4-26b-a4b-it:free` as
+fallback. Of the free models (Oct 2026), Google's Gemma is trained on the widest set of
+languages (Nepali included) and handles casual Romanized Nepali best. The rest of the free list is
+mostly English/coding-focused.
+
+### Switching LLM provider (env vars only)
+
+| Provider | `LLM_BASE_URL` | `LLM_MODEL` example |
+| --- | --- | --- |
+| OpenRouter (default) | `https://openrouter.ai/api/v1` | `google/gemma-4-31b-it:free` |
+| Google Gemini free tier | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Groq free tier | `https://api.groq.com/openai/v1` | see console.groq.com/docs/models |
+
+### Environment variables
+
+Set them in **Vercel → Project → Settings → Environment Variables** (Production and Preview),
+then redeploy. All are listed with comments in [`.env.example`](.env.example):
+`FIREBASE_SERVICE_ACCOUNT` (base64 service-account JSON), `LLM_BASE_URL`, `LLM_API_KEY`,
+`LLM_MODEL`, `LLM_FALLBACK_MODEL`, `META_APP_SECRET`, `META_VERIFY_TOKEN`, `PAGE_ACCESS_TOKEN`,
+`IG_ACCESS_TOKEN`/`IG_USER_ID` (optional), `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`,
+`TIKTOK_APP_SECRET`, `TIKTOK_ACCESS_TOKEN`, `TIKTOK_BUSINESS_ID`, `TIKTOK_REPLY_TO_COMMENTS`.
+These are **server-only**. Never prefix them with `VITE_`, or they'd ship in the browser bundle.
+
+To produce `FIREBASE_SERVICE_ACCOUNT`: Firebase console → Project settings → **Service
+accounts → Generate new private key**, then `base64 -w0 key.json` (PowerShell:
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("key.json"))`). Delete the JSON file afterwards.
+
+Platform setup (Meta app, Page, IG, WhatsApp number, App Review, TikTok limits, free LLM keys):
+**[docs/SOCIAL_SETUP.md](docs/SOCIAL_SETUP.md)**.
+
+### Local development & tests
+
+```bash
+npm test                  # language detection, matching, fallback chain, webhooks
+vercel dev                # Vite + /api together (plain `npm run dev` has no /api)
+```
+
+### Limits worth knowing
+
+- Vercel **Hobby is for non-commercial use** under Vercel's terms. For a business, Pro or a host
+  like Netlify/Cloudflare may be the compliant choice. The code only depends on `waitUntil`.
+- Free LLM tiers are rate-limited. When they are exhausted, replies fall back to keyword answers,
+  and the stats card shows errors and 429s.
+- Platform replies are limited to 24h after the customer's last message (TikTok comments: public,
+  150 chars). See SOCIAL_SETUP.md.
+
 ## Known data quirks handled on import
 
 Your existing sheet has a few rough edges; the importer cleans them rather than failing:
@@ -127,7 +206,12 @@ src/lib/         firebase init, transactions (inventory.js), calculations (calc.
                  spreadsheet parse (importXlsx.js) + commit (commitImport.js)
 src/pages/       Login, Dashboard, OrderEntry, Orders, Inventory, Expenses, AdSpend,
                  Invoice, Settings, Import, More
-src/components/  Nav, TopBar, ProtectedRoute, StatusButtons
-firestore.rules  security rules (auth-only)
+src/components/  Nav, TopBar, ProtectedRoute, StatusButtons, BotBadges
+api/             Vercel functions: webhooks/meta, webhooks/tiktok, send, test-reply
+api/_lib/        bot pipeline (language, catalog, faqMatcher, prompt, llm), adapters, inbound
+shared/          code used by both browser and functions (stock math, bot defaults)
+tests/           node:test suites (npm test)
+docs/            SOCIAL_SETUP.md
+firestore.rules  security rules (auth-only; server-written bot collections)
 vercel.json      build + SPA rewrite
 ```
