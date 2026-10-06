@@ -5,6 +5,7 @@ const tabs = [
   { to: '/new', ic: '➕', label: 'New' },
   { to: '/orders', ic: '📦', label: 'Orders' },
   { to: '/inventory', ic: '🏷️', label: 'Stock' },
+  { to: '/inbox', ic: '💬', label: 'Inbox' },
   { to: '/more', ic: '⋯', label: 'More' },
 ]
 

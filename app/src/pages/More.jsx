@@ -11,6 +11,7 @@ const links = [
   { to: '/invoice', ic: '🧾', label: 'Invoices' },
   { to: '/import', ic: '📥', label: 'Import spreadsheet' },
   { to: '/settings', ic: '⚙️', label: 'Settings' },
+  { to: '/inbox', ic: '💬', label: 'Inbox (auto-reply)' },
   { to: '/bot/knowledge', ic: '🧠', label: 'Bot Knowledge' },
   { to: '/bot/test', ic: '🧪', label: 'Test Bot' },
 ]

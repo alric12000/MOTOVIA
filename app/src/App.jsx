@@ -16,6 +16,8 @@ import Import from './pages/Import'
 import More from './pages/More'
 import BotKnowledge from './pages/BotKnowledge'
 import TestBot from './pages/TestBot'
+import Inbox from './pages/Inbox'
+import Conversation from './pages/Conversation'
 
 export default function App() {
   const { user } = useAuth()
@@ -40,6 +42,8 @@ export default function App() {
         <Route path="/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
         <Route path="/bot/knowledge" element={<ProtectedRoute><BotKnowledge /></ProtectedRoute>} />
         <Route path="/bot/test" element={<ProtectedRoute><TestBot /></ProtectedRoute>} />
+        <Route path="/inbox" element={<ProtectedRoute><Inbox /></ProtectedRoute>} />
+        <Route path="/inbox/:id" element={<ProtectedRoute><Conversation /></ProtectedRoute>} />
       </Routes>
       {showChrome && <Nav />}
     </div>
