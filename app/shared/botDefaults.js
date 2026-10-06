@@ -30,6 +30,11 @@ export const DEFAULT_KNOWLEDGE = {
       ne: 'Pahile gadi pani le rinse garnus, FoamX foam sprayer le lagaunus, 2–3 minute rakhnus, ani Hydro Wash Shampoo le wash garera microfiber towel le pusnus. Kada gham ma wash nagarnus.',
     },
     {
+      key: 'how_to_order', label: 'How to order',
+      en: 'To order, just send your name, phone number, full delivery address and the product you want here, and our team will confirm it.',
+      ne: 'Order garna yahi message ma tapai ko naam, phone number, delivery address ra kun product chahiyo pathaunus, hamro team le confirm garcha.',
+    },
+    {
       key: 'contact', label: 'Contact & hours',
       en: 'We reply 9am–7pm, Sunday to Friday. You can also message us here any time.',
       ne: 'Hami Aaitabar dekhi Sukrabar, 9am–7pm samma reply garchhau. Jaba pani yaha message garna saknuhunchha.',

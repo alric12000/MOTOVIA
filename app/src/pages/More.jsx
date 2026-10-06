@@ -12,6 +12,7 @@ const links = [
   { to: '/import', ic: '📥', label: 'Import spreadsheet' },
   { to: '/settings', ic: '⚙️', label: 'Settings' },
   { to: '/bot/knowledge', ic: '🧠', label: 'Bot Knowledge' },
+  { to: '/bot/test', ic: '🧪', label: 'Test Bot' },
 ]
 
 export default function More() {

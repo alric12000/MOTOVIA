@@ -1,4 +1,5 @@
 import { NON_SELLING_STATUSES } from './constants'
+import { remainingStock } from '../../shared/stock.js'
 
 // An order counts toward revenue/COGS/stock only if it isn't Returned/Cancelled.
 export const isSellingOrder = (order) =>
@@ -40,12 +41,8 @@ export function componentsForProduct(product, productsById) {
 // Remaining stock from the transaction-maintained counter on the product doc.
 // sold_qty is kept atomically by createOrderWithStock / changeOrderStatus, so this
 // is the authoritative figure and can't drift from rapid taps.
-export function remainingStock(component) {
-  const opening = Number(component.opening_stock) || 0
-  const restocked = Number(component.restocked_qty) || 0
-  const sold = Number(component.sold_qty) || 0
-  return opening + restocked - sold
-}
+// Lives in shared/ so the auto-reply bot (api/) uses the exact same formula.
+export { remainingStock }
 
 export function isLowStock(component) {
   return remainingStock(component) <= (Number(component.reorder_level) || 0)

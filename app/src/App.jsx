@@ -15,6 +15,7 @@ import Settings from './pages/Settings'
 import Import from './pages/Import'
 import More from './pages/More'
 import BotKnowledge from './pages/BotKnowledge'
+import TestBot from './pages/TestBot'
 
 export default function App() {
   const { user } = useAuth()
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
         <Route path="/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
         <Route path="/bot/knowledge" element={<ProtectedRoute><BotKnowledge /></ProtectedRoute>} />
+        <Route path="/bot/test" element={<ProtectedRoute><TestBot /></ProtectedRoute>} />
       </Routes>
       {showChrome && <Nav />}
     </div>
