@@ -21,7 +21,8 @@ replies.
 ### OpenRouter (default)
 1. Sign up at https://openrouter.ai → **Keys → Create key**.
 2. Set `LLM_BASE_URL=https://openrouter.ai/api/v1`, `LLM_API_KEY=<key>`,
-   `LLM_MODEL=google/gemma-4-31b-it:free`, `LLM_FALLBACK_MODEL=google/gemma-4-26b-a4b-it:free`.
+   `LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free`, `LLM_FALLBACK_MODEL=nvidia/nemotron-3-super-120b-a12b:free`,
+   `LLM_REASONING_EFFORT=none`, `LLM_FALLBACK_REASONING_EFFORT=none`.
 3. Free (`:free`) models are rate-limited per minute and per day; the limits are higher once your
    account has ever bought credits. The free list also changes, so see
    https://openrouter.ai/models?q=free and if a model disappears, just change the env var.

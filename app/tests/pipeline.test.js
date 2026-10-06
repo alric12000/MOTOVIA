@@ -83,8 +83,17 @@ test('invented price or Devanagari reply is rejected', () => {
 
 test('prompt masks phone numbers and never contains cost price', async () => {
   const llm = fakeLLM(['NEEDS_HUMAN'])
-  await generateReply({ text: 'mero number 9812345678, order kaha pugyo?', knowledge, complete: llm.complete })
+  await generateReply({ text: 'mero number 9812345678, delivery kati din lagcha?', knowledge, complete: llm.complete })
   const prompt = JSON.stringify(llm.calls[0])
   assert.ok(!prompt.includes('9812345678')); assert.ok(prompt.includes('[phone]'))
   assert.ok(!prompt.includes('600'))
+})
+
+test('price of an unpriced product / order status → needs_human without an LLM call', async () => {
+  const k = { ...knowledge, catalog: buildCatalog([{ id: 'x', name: 'Foam X', type: 'component', default_selling_price: 0, opening_stock: 3, sold_qty: 0 }]) }
+  const llm = fakeLLM(['the team will confirm the price'])
+  const r = await generateReply({ text: 'foamx kati ho?', knowledge: k, complete: llm.complete })
+  assert.equal(r.needs_human, true); assert.equal(r.reason, 'price not set for this product'); assert.equal(llm.calls.length, 0)
+  const r2 = await generateReply({ text: 'where is my order?', knowledge, complete: llm.complete })
+  assert.equal(r2.needs_human, true); assert.equal(llm.calls.length, 0)
 })

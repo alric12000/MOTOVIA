@@ -36,6 +36,18 @@ export async function generateReply({ text, prevLanguage, history = [], knowledg
   const relevant = selectRelevant(text, knowledge)
   const llmErrors = []
 
+  // Decided without the LLM: a person must answer these, so flag them (an LLM would
+  // happily say "the team will confirm" without anyone being told to follow up).
+  if (relevant.intents.includes('order_status')) {
+    return result('fallback', lang === 'ne' ? settings.fallback_ne : settings.fallback_en,
+      { reason: 'question about an existing order' })
+  }
+  if (relevant.intents.includes('price') && relevant.productsMatched &&
+      relevant.products.some((p) => p.price == null)) {
+    return result('fallback', lang === 'ne' ? settings.fallback_ne : settings.fallback_en,
+      { reason: 'price not set for this product' })
+  }
+
   // 2. LLM: primary → fallback model.
   if (complete) {
     const { messages, facts } = buildMessages({

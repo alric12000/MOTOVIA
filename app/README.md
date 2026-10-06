@@ -139,16 +139,17 @@ the LLM call + send with `waitUntil` (`@vercel/functions`) in the same invocatio
 waits on the LLM and nothing needs a paid background-job feature. A message is processed once
 per platform message id (`processed_events`), so Meta retries never cause double replies.
 
-**Model choice:** `google/gemma-4-31b-it:free` on OpenRouter, with `google/gemma-4-26b-a4b-it:free` as
-fallback. Of the free models (Oct 2026), Google's Gemma is trained on the widest set of
-languages (Nepali included) and handles casual Romanized Nepali best. The rest of the free list is
-mostly English/coding-focused.
+**Model choice:** `nvidia/nemotron-3-ultra-550b-a55b:free` (Nemotron 3 Ultra) on OpenRouter, with `nvidia/nemotron-3-super-120b-a12b:free` as fallback,
+both with `reasoning_effort=none`. Tested Oct 2026 on 15 real customer-style messages against the live
+catalog: correct facts and natural Romanized Nepali, 1–4.5s per reply. Ultra is sometimes
+"temporarily overloaded" upstream, and Super then answers; its Nepali is a bit stiffer. Gemini
+(`gemini-3.5-flash`) scored equally well in the same test if you ever want to switch.
 
 ### Switching LLM provider (env vars only)
 
 | Provider | `LLM_BASE_URL` | `LLM_MODEL` example |
 | --- | --- | --- |
-| OpenRouter (default) | `https://openrouter.ai/api/v1` | `google/gemma-4-31b-it:free` |
+| OpenRouter (default) | `https://openrouter.ai/api/v1` | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | Google Gemini free tier | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash` + fallback `gemini-3.5-flash-lite` (set `LLM_REASONING_EFFORT=none`, `LLM_FALLBACK_REASONING_EFFORT=low`) |
 | Groq free tier | `https://api.groq.com/openai/v1` | see console.groq.com/docs/models |
 
