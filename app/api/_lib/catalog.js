@@ -35,7 +35,8 @@ export function buildCatalog(products) {
       id: p.id,
       name: p.name,
       type: p.type === 'bundle' ? 'bundle' : 'component',
-      price: Number(p.default_selling_price) || 0,
+      // 0 / missing means "not set" — the bot must never quote Rs. 0.
+      price: Number(p.default_selling_price) > 0 ? Number(p.default_selling_price) : null,
       contents: p.type === 'bundle'
         ? (p.components || []).map((c) => {
             const comp = byId[c.productId]
@@ -73,19 +74,22 @@ export function findProducts(text, catalog) {
 const rs = (n) => `Rs. ${Number(n).toLocaleString('en-IN')}`
 
 // One-line, customer-facing description of a product in the reply language.
+// Products without a price are described without one (callers hand price questions
+// about them to a human).
 export function describeProduct(p, lang) {
+  const priced = p.price != null
   if (lang === 'ne') {
     const stock = p.in_stock ? 'stock ma cha' : 'ahile stock ma chaina'
     if (p.type === 'bundle') {
-      return `${p.name} ma ${joinNe(p.contents)} aaucha, ${rs(p.price)} ma (${stock}).`
+      return `${p.name} ma ${joinNe(p.contents)} aaucha${priced ? `, ${rs(p.price)} ma` : ''} (${stock}).`
     }
-    return `${p.name} ko price ${rs(p.price)} ho (${stock}).`
+    return priced ? `${p.name} ko price ${rs(p.price)} ho (${stock}).` : `${p.name} ${stock}.`
   }
   const stock = p.in_stock ? 'in stock' : 'currently out of stock'
   if (p.type === 'bundle') {
-    return `${p.name} includes ${joinEn(p.contents)} for ${rs(p.price)} (${stock}).`
+    return `${p.name} includes ${joinEn(p.contents)}${priced ? ` for ${rs(p.price)}` : ''} (${stock}).`
   }
-  return `${p.name} is ${rs(p.price)} (${stock}).`
+  return priced ? `${p.name} is ${rs(p.price)} (${stock}).` : `${p.name} is ${stock}.`
 }
 
 const joinNe = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} ra ${xs[xs.length - 1]}`)
@@ -94,7 +98,8 @@ const joinEn = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join('
 // Compact plain-text facts block for the LLM prompt.
 export function catalogFacts(items) {
   return items.map((p) => {
-    const base = `- ${p.name}: ${rs(p.price)}, ${p.in_stock ? 'in stock' : 'OUT OF STOCK'}`
+    const price = p.price != null ? rs(p.price) : 'price not listed (if asked, the team must answer)'
+    const base = `- ${p.name}: ${price}, ${p.in_stock ? 'in stock' : 'OUT OF STOCK'}`
     return p.type === 'bundle' ? `${base}; contains ${p.contents.join(' + ')}` : base
   }).join('\n')
 }

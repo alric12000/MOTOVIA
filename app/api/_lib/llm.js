@@ -4,9 +4,13 @@
 //   LLM_API_KEY
 //   LLM_MODEL           e.g. google/gemma-4-31b-it:free
 //   LLM_FALLBACK_MODEL  optional, tried on any error / 429 / invalid output
+//   LLM_REASONING_EFFORT optional, e.g. "none" for Gemini 3.x "thinking" models — otherwise
+//                       hidden reasoning eats max_tokens and the reply comes back cut off
+//   LLM_FALLBACK_REASONING_EFFORT  same, for the fallback model (some reject "none")
 
 const TIMEOUT_MS = 20_000
-const MAX_TOKENS = 220
+// Replies are asked to stay under 60 words; the headroom is for light model reasoning.
+const MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS) || 400
 
 export class LlmError extends Error {
   constructor(message, { status, model } = {}) { super(message); this.status = status; this.model = model }
@@ -17,7 +21,7 @@ export function llmModels() {
 }
 export const llmConfigured = () => Boolean(process.env.LLM_API_KEY && llmModels().length)
 
-async function callOnce(model, messages) {
+async function callOnce(model, messages, reasoningEffort) {
   const base = (process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
   const headers = {
     'Content-Type': 'application/json',
@@ -35,14 +39,20 @@ async function callOnce(model, messages) {
       method: 'POST',
       headers,
       signal: ctrl.signal,
-      body: JSON.stringify({ model, messages, max_tokens: MAX_TOKENS, temperature: 0.3 }),
+      body: JSON.stringify({
+        model, messages, max_tokens: MAX_TOKENS, temperature: 0.3,
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      }),
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || body.error) {
       const msg = body.error?.message || `HTTP ${res.status}`
       throw new LlmError(msg, { status: res.status === 200 ? body.error?.code : res.status, model })
     }
-    const content = body.choices?.[0]?.message?.content
+    const choice = body.choices?.[0]
+    // A reply cut off by the token limit is never safe to send to a customer.
+    if (choice?.finish_reason === 'length') throw new LlmError('reply cut off (max_tokens)', { model })
+    const content = choice?.message?.content
     const text = Array.isArray(content) ? content.map((p) => p.text || '').join('') : content
     return text || ''
   } catch (e) {
@@ -62,7 +72,10 @@ export async function completeWithFallback(messages, { validate, onAttempt = () 
   const errors = []
   for (const model of llmModels()) {
     try {
-      const text = await callOnce(model, messages)
+      const effort = model === process.env.LLM_MODEL
+        ? process.env.LLM_REASONING_EFFORT
+        : process.env.LLM_FALLBACK_REASONING_EFFORT
+      const text = await callOnce(model, messages, effort)
       const check = validate(text)
       onAttempt({ model, ok: check.ok, error: check.ok ? null : check.reason })
       if (check.ok) return { model, check }

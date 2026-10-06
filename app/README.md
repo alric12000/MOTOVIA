@@ -149,7 +149,7 @@ mostly English/coding-focused.
 | Provider | `LLM_BASE_URL` | `LLM_MODEL` example |
 | --- | --- | --- |
 | OpenRouter (default) | `https://openrouter.ai/api/v1` | `google/gemma-4-31b-it:free` |
-| Google Gemini free tier | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Google Gemini free tier | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash` + fallback `gemini-3.5-flash-lite` (set `LLM_REASONING_EFFORT=none`, `LLM_FALLBACK_REASONING_EFFORT=low`) |
 | Groq free tier | `https://api.groq.com/openai/v1` | see console.groq.com/docs/models |
 
 ### Environment variables

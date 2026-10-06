@@ -29,7 +29,9 @@ replies.
 ### Google Gemini (free tier)
 1. https://aistudio.google.com → **Get API key**.
 2. `LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai`,
-   `LLM_API_KEY=<key>`, `LLM_MODEL=<a current Flash model, e.g. gemini-2.5-flash>`.
+   `LLM_API_KEY=<key>`, `LLM_MODEL=gemini-3.5-flash`, `LLM_FALLBACK_MODEL=gemini-3.5-flash-lite`,
+   `LLM_REASONING_EFFORT=none`, `LLM_FALLBACK_REASONING_EFFORT=low` (Flash-Lite rejects "none"; Gemini 3.x "thinks" by default, which uses up the reply's token
+   budget and cuts answers off; 2.5 models are retired for new keys).
    Gemini is strong at Nepali. On the free tier, Google may use your prompts to improve its
    products. Prompts are masked (phone numbers, addresses, emails), but keep that in mind.
 

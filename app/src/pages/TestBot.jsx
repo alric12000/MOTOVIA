@@ -22,6 +22,8 @@ const SAMPLES = [
   'mero aghi ko order kaha pugyo? 9812345678',
 ]
 
+const SAMPLE_GAP_MS = 6000
+
 function ResultCard({ r }) {
   return (
     <div className="card">
@@ -76,10 +78,12 @@ export default function TestBot() {
     setBusy(false)
   }
 
-  // Sequential on purpose: free LLM tiers rate-limit bursts.
+  // Sequential and spaced out on purpose: free LLM tiers allow only a few requests per
+  // minute (Gemini free tier returned 429 after ~8 back-to-back calls).
   const runSamples = async () => {
     setBusy(true); setResults([])
     for (let i = 0; i < SAMPLES.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, SAMPLE_GAP_MS))
       setProgress(`${i + 1}/${SAMPLES.length}`)
       const r = await run(SAMPLES[i])
       setResults((xs) => [...xs, r])

@@ -110,3 +110,19 @@ test('PII masking', () => {
   assert.equal(maskPII('mail me at a.b@gmail.com'), 'mail me at [email]')
   assert.equal(maskPII('Pokhara ma delivery kati?'), 'Pokhara ma delivery kati?')
 })
+
+test('unpriced products: no "Rs. 0", price questions handed to a human', () => {
+  const cat = buildCatalog([{ id: 'x', name: 'Foam X', type: 'component', default_selling_price: 0, opening_stock: 3, sold_qty: 0 }])
+  const k = { catalog: cat, faqs: DEFAULT_KNOWLEDGE.faqs, paymentMethods: [] }
+  assert.equal(cat[0].price, null)
+  assert.equal(keywordReply('foam x kati ho?', 'ne', k), null)
+  assert.equal(keywordReply('is foam x in stock?', 'en', k), 'Foam X is in stock.')
+})
+
+test('order status goes to a human; usage questions get usage tips', () => {
+  assert.ok(detectIntents('mero aghi ko order kaha pugyo?').includes('order_status'))
+  assert.ok(!detectIntents('mero aghi ko order kaha pugyo?').includes('how_to_order'))
+  assert.equal(keywordReply('mero aghi ko order kaha pugyo?', 'ne', kb), null)
+  assert.equal(keywordReply('where is my order?', 'en', kb), null)
+  assert.match(keywordReply('How do I use FoamX?', 'en', kb), /foam sprayer/)
+})
