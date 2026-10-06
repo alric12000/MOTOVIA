@@ -173,8 +173,13 @@ Platform setup (Meta app, Page, IG, WhatsApp number, App Review, TikTok limits, 
 
 ```bash
 npm test                  # language detection, matching, fallback chain, webhooks
-vercel dev                # Vite + /api together (plain `npm run dev` has no /api)
+npm run dev:api           # terminal 1: local /api server on :3001 (reads .env.local)
+npm run dev               # terminal 2: Vite on :5173, proxies /api to :3001
+npm run simulate:meta -- "foamx kati ho?"   # signed fake Messenger message → Inbox
 ```
+
+`vercel dev` works too, but needs `vercel login` and `vercel link`. For real Meta webhooks
+locally, expose port 3001 with ngrok, or use a Vercel preview URL.
 
 ### Limits worth knowing
 
