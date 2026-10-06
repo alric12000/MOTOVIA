@@ -42,7 +42,8 @@ replies.
    `LLM_MODEL=<a model from console.groq.com/docs/models>`. Very fast, but its open models are
    weaker at Romanized Nepali, so check them with the Test Bot first.
 
-You can mix providers, as long as both models live on the same `LLM_BASE_URL`.
+**Recommended:** Gemini as primary (`LLM_*`) and OpenRouter as fallback (`LLM_FALLBACK_BASE_URL`,
+`LLM_FALLBACK_API_KEY`, `LLM_FALLBACK_MODEL`). Separate providers mean separate free quotas.
 
 ---
 

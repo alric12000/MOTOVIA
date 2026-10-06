@@ -1,12 +1,14 @@
 // Provider-agnostic OpenAI-compatible chat completions over plain fetch.
 // Configure with env vars only:
-//   LLM_BASE_URL        e.g. https://openrouter.ai/api/v1
+//   LLM_BASE_URL        e.g. https://generativelanguage.googleapis.com/v1beta/openai
 //   LLM_API_KEY
-//   LLM_MODEL           e.g. google/gemma-4-31b-it:free
+//   LLM_MODEL           e.g. gemini-3.5-flash
+//   LLM_REASONING_EFFORT optional, e.g. "none" for "thinking" models — otherwise hidden
+//                       reasoning eats max_tokens and the reply comes back cut off
 //   LLM_FALLBACK_MODEL  optional, tried on any error / 429 / invalid output
-//   LLM_REASONING_EFFORT optional, e.g. "none" for Gemini 3.x "thinking" models — otherwise
-//                       hidden reasoning eats max_tokens and the reply comes back cut off
-//   LLM_FALLBACK_REASONING_EFFORT  same, for the fallback model (some reject "none")
+//   LLM_FALLBACK_BASE_URL / LLM_FALLBACK_API_KEY  optional; default to the primary's, so
+//                       the fallback can live on another provider with its own free quota
+//   LLM_FALLBACK_REASONING_EFFORT  same as above, for the fallback model
 
 const TIMEOUT_MS = 20_000
 // Replies are asked to stay under 60 words; the headroom is for light model reasoning.
@@ -16,17 +18,29 @@ export class LlmError extends Error {
   constructor(message, { status, model } = {}) { super(message); this.status = status; this.model = model }
 }
 
-export function llmModels() {
-  return [process.env.LLM_MODEL, process.env.LLM_FALLBACK_MODEL].filter(Boolean)
-}
-export const llmConfigured = () => Boolean(process.env.LLM_API_KEY && llmModels().length)
-
-async function callOnce(model, messages, reasoningEffort) {
-  const base = (process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${process.env.LLM_API_KEY}`,
+/** Configured providers in order: primary, then fallback. */
+export function llmProviders() {
+  const env = process.env
+  const primary = {
+    model: env.LLM_MODEL,
+    baseUrl: env.LLM_BASE_URL || 'https://openrouter.ai/api/v1',
+    apiKey: env.LLM_API_KEY,
+    reasoningEffort: env.LLM_REASONING_EFFORT,
   }
+  const fallback = {
+    model: env.LLM_FALLBACK_MODEL,
+    baseUrl: env.LLM_FALLBACK_BASE_URL || primary.baseUrl,
+    apiKey: env.LLM_FALLBACK_API_KEY || primary.apiKey,
+    reasoningEffort: env.LLM_FALLBACK_REASONING_EFFORT,
+  }
+  return [primary, fallback].filter((p) => p.model && p.apiKey)
+}
+export const llmModels = () => llmProviders().map((p) => p.model)
+export const llmConfigured = () => llmProviders().length > 0
+
+async function callOnce({ model, baseUrl, apiKey, reasoningEffort }, messages) {
+  const base = baseUrl.replace(/\/+$/, '')
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }
   // Optional attribution headers OpenRouter asks for; other providers don't need them.
   if (base.includes('openrouter.ai')) {
     headers['HTTP-Referer'] = process.env.APP_URL || 'https://motovia.app'
@@ -45,9 +59,10 @@ async function callOnce(model, messages, reasoningEffort) {
       }),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok || body.error) {
-      const msg = body.error?.message || `HTTP ${res.status}`
-      throw new LlmError(msg, { status: res.status === 200 ? body.error?.code : res.status, model })
+    // Gemini's OpenAI endpoint wraps errors in an array.
+    const err = Array.isArray(body) ? body[0]?.error : body.error
+    if (!res.ok || err) {
+      throw new LlmError(err?.message || `HTTP ${res.status}`, { status: res.status === 200 ? err?.code : res.status, model })
     }
     const choice = body.choices?.[0]
     // A reply cut off by the token limit is never safe to send to a customer.
@@ -64,18 +79,16 @@ async function callOnce(model, messages, reasoningEffort) {
 }
 
 /**
- * Try LLM_MODEL then LLM_FALLBACK_MODEL. `validate(text)` returns
+ * Try the primary model, then the fallback. `validate(text)` returns
  * { ok, reason } — invalid output also falls through to the next model.
  * `onAttempt({ model, ok, status, error })` is called for usage stats.
  */
 export async function completeWithFallback(messages, { validate, onAttempt = () => {} }) {
   const errors = []
-  for (const model of llmModels()) {
+  for (const provider of llmProviders()) {
+    const { model } = provider
     try {
-      const effort = model === process.env.LLM_MODEL
-        ? process.env.LLM_REASONING_EFFORT
-        : process.env.LLM_FALLBACK_REASONING_EFFORT
-      const text = await callOnce(model, messages, effort)
+      const text = await callOnce(provider, messages)
       const check = validate(text)
       onAttempt({ model, ok: check.ok, error: check.ok ? null : check.reason })
       if (check.ok) return { model, check }
