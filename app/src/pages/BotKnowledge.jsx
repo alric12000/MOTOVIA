@@ -9,6 +9,8 @@ const TEMPLATES = [
   { key: 'greeting_ne', label: 'Greeting (Romanized Nepali)' },
   { key: 'fallback_en', label: '"Team will reply soon" (English)' },
   { key: 'fallback_ne', label: '"Team will reply soon" (Romanized Nepali)' },
+  { key: 'off_topic_en', label: 'Off-topic / "only shop questions" (English)' },
+  { key: 'off_topic_ne', label: 'Off-topic / "only shop questions" (Romanized Nepali)' },
 ]
 
 // Editor for bot/knowledge (FAQs) and bot/settings (auto-reply switch + templates).

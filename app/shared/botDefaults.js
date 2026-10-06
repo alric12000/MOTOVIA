@@ -47,6 +47,8 @@ export const DEFAULT_BOT_SETTINGS = {
   auto_reply_enabled: true,
   greeting_en: 'Hi! Welcome to MotoviaNepal 🚗 How can we help you today?',
   greeting_ne: 'Namaste! MotoviaNepal ma swagat cha 🚗 Kasari help garna sakchhau?',
+  off_topic_en: 'Sorry, I can only help with MotoviaNepal products, orders and delivery. 🚗 What would you like to know?',
+  off_topic_ne: 'Maaf garnus, ma MotoviaNepal ko products, order ra delivery ko barema matra help garna sakchhu. 🚗 K jannu chha?',
   fallback_en: 'Thanks for your message! Our team will reply to you soon. 🙏',
   fallback_ne: 'Message ko lagi dhanyabad! Hamro team le chhittai reply garnecha. 🙏',
 }

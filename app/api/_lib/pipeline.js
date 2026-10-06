@@ -5,6 +5,10 @@ import { detectLanguage, greetingLanguage } from './language.js'
 import { selectRelevant, keywordReply } from './faqMatcher.js'
 import { buildMessages, checkReply } from './prompt.js'
 
+// Obvious attempts to re-program the bot. Declined without an LLM call (the model
+// prompt has the same rule, this just doesn't depend on the model obeying it).
+const INJECTION = /\b(ignore|disregard|forget)\b.{0,30}\b(previous|prior|above|earlier|all|your)\b.{0,20}\b(instructions?|rules?|prompts?)\b|\b(system prompt|developer mode|jailbreak|you are now|act as an?|pretend (to be|you are)|roleplay as)\b/i
+
 // layer → sent_by value stored on the outgoing message.
 export const SENT_BY = { llm: 'bot', keyword: 'keyword', template: 'template', fallback: 'template' }
 
@@ -32,6 +36,10 @@ export async function generateReply({ text, prevLanguage, history = [], knowledg
     if (g === 'ne' || prevLanguage === 'ne') lang = 'ne'
     return result('template', lang === 'ne' ? settings.greeting_ne : settings.greeting_en)
   }
+
+  const offTopic = (reason, extra = {}) =>
+    result('template', lang === 'ne' ? settings.off_topic_ne : settings.off_topic_en, { reason, ...extra })
+  if (INJECTION.test(text)) return offTopic('prompt-injection attempt')
 
   const relevant = selectRelevant(text, knowledge)
   const llmErrors = []
@@ -66,6 +74,7 @@ export async function generateReply({ text, prevLanguage, history = [], knowledg
           if (!a.ok) llmErrors.push(`${a.model}: ${a.error}`)
         },
       })
+      if (check.offTopic) return offTopic('off-topic (LLM)', { model })
       if (check.needsHuman) {
         return result('fallback', lang === 'ne' ? settings.fallback_ne : settings.fallback_en,
           { model, reason: 'LLM could not answer from the facts' })
