@@ -1,5 +1,5 @@
 // Small helpers for the Vercel Node functions.
-import { adminAuth } from './admin.js'
+import { verifyFirebaseIdToken } from './idToken.js'
 
 export class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -15,7 +15,7 @@ export async function requireAdmin(req) {
   if (!m) throw new HttpError(401, 'Missing ID token')
   let decoded
   try {
-    decoded = await adminAuth().verifyIdToken(m[1])
+    decoded = await verifyFirebaseIdToken(m[1])
   } catch {
     throw new HttpError(401, 'Invalid or expired ID token')
   }
